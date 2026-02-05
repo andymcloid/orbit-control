@@ -1,0 +1,217 @@
+const express = require('express');
+const { WebSocketServer } = require('ws');
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
+const { getSystemInfo, restartKiosk, reboot } = require('./lib/system');
+const cdp = require('./lib/cdp');
+
+const SETTINGS_PATH = path.join(__dirname, 'settings.json');
+
+function readSettings() {
+  try {
+    return JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8'));
+  } catch {
+    return {
+      url: 'https://dietpi.com',
+      resolution: { width: 1920, height: 1080 },
+      hideCursorDelay: 10,
+      name: 'Orbit',
+    };
+  }
+}
+
+function writeSettings(settings) {
+  fs.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2));
+}
+
+const app = express();
+const server = http.createServer(app);
+const wss = new WebSocketServer({ server });
+
+app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
+
+// --- REST API ---
+
+app.get('/api/settings', (req, res) => {
+  res.json(readSettings());
+});
+
+app.post('/api/settings', (req, res) => {
+  const current = readSettings();
+  const updated = { ...current, ...req.body };
+  if (req.body.resolution) {
+    updated.resolution = { ...current.resolution, ...req.body.resolution };
+  }
+  writeSettings(updated);
+  res.json(updated);
+});
+
+app.get('/api/system-info', async (req, res) => {
+  try {
+    res.json(await getSystemInfo());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/status', async (req, res) => {
+  let currentUrl = null;
+  try {
+    currentUrl = await cdp.getCurrentUrl();
+  } catch {}
+  res.json({
+    browser_connected: cdp.isConnected(),
+    current_url: currentUrl,
+    settings: readSettings(),
+  });
+});
+
+app.post('/api/navigate', async (req, res) => {
+  const { url } = req.body;
+  if (!url) return res.status(400).json({ error: 'url required' });
+  try {
+    const settings = readSettings();
+    settings.url = url;
+    writeSettings(settings);
+    await cdp.navigate(url);
+    res.json({ ok: true });
+    broadcastStatus();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/reload', async (req, res) => {
+  try {
+    await cdp.reload();
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/zoom', async (req, res) => {
+  const { zoom } = req.body;
+  if (!zoom || zoom < 0.25 || zoom > 5) return res.status(400).json({ error: 'zoom must be 0.25-5' });
+  try {
+    const settings = readSettings();
+    settings.zoom = zoom;
+    writeSettings(settings);
+    await cdp.setZoom(zoom);
+    res.json({ ok: true });
+    broadcastStatus();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/click', async (req, res) => {
+  const { x, y } = req.body;
+  if (x == null || y == null) return res.status(400).json({ error: 'x and y required' });
+  try {
+    await cdp.click(Math.round(x), Math.round(y));
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/restart-kiosk', async (req, res) => {
+  try {
+    await restartKiosk();
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/reboot', (req, res) => {
+  res.json({ ok: true, message: 'Rebooting...' });
+  setTimeout(() => reboot(), 1000);
+});
+
+// --- WebSocket (control panel live updates + preview) ---
+
+const controlClients = new Set();
+
+function broadcastStatus() {
+  const data = JSON.stringify({
+    type: 'status',
+    browser_connected: cdp.isConnected(),
+    settings: readSettings(),
+  });
+  for (const ws of controlClients) {
+    if (ws.readyState === 1) ws.send(data);
+  }
+}
+
+function updatePreview() {
+  let anyWant = false;
+  for (const ws of controlClients) {
+    if (ws._wantPreview) { anyWant = true; break; }
+  }
+  if (anyWant && cdp.isConnected()) {
+    cdp.startPreview();
+  } else {
+    cdp.stopPreview();
+  }
+}
+
+wss.on('connection', (ws) => {
+  controlClients.add(ws);
+  ws._wantPreview = false;
+
+  ws.send(JSON.stringify({
+    type: 'status',
+    browser_connected: cdp.isConnected(),
+    settings: readSettings(),
+  }));
+
+  ws.on('message', (raw) => {
+    let msg;
+    try { msg = JSON.parse(raw); } catch { return; }
+
+    if (msg.type === 'preview-start') {
+      ws._wantPreview = true;
+      updatePreview();
+    } else if (msg.type === 'preview-stop') {
+      ws._wantPreview = false;
+      updatePreview();
+    }
+  });
+
+  ws.on('close', () => {
+    controlClients.delete(ws);
+    updatePreview();
+  });
+});
+
+// Forward screenshot frames to control clients that want preview
+cdp.setOnScreenshotFrame((data) => {
+  const msg = JSON.stringify({ type: 'frame', data });
+  for (const ws of controlClients) {
+    if (ws._wantPreview && ws.readyState === 1) ws.send(msg);
+  }
+});
+
+// --- CDP connection state ---
+cdp.setOnConnectChange((connected) => {
+  broadcastStatus();
+  if (connected) {
+    updatePreview();
+    const settings = readSettings();
+    if (settings.zoom && settings.zoom !== 1) {
+      cdp.setZoom(settings.zoom).catch(() => {});
+    }
+  }
+});
+
+// --- Start ---
+
+const PORT = 80;
+server.listen(PORT, () => {
+  console.log(`OrbitControl running on http://0.0.0.0:${PORT}`);
+  cdp.connect();
+});

@@ -1,0 +1,15 @@
+[Unit]
+Description=OrbitControl Kiosk Manager
+After=network.target
+Before=getty@tty1.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/orbit-control
+ExecStart=/usr/local/bin/node /opt/orbit-control/server.js
+Restart=always
+RestartSec=3
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target

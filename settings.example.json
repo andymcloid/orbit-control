@@ -1,0 +1,10 @@
+{
+  "url": "https://example.com",
+  "resolution": {
+    "width": 1920,
+    "height": 1080
+  },
+  "hideCursorDelay": 10,
+  "name": "Orbit",
+  "zoom": 1
+}

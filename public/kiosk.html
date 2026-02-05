@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Orbit Kiosk</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+    iframe { width: 100%; height: 100%; border: none; }
+    #loading {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      color: #555; font-family: monospace; font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div id="loading">Connecting...</div>
+  <iframe id="kiosk-frame" src="about:blank" allow="autoplay; fullscreen; camera; microphone"></iframe>
+  <script src="/js/kiosk.js"></script>
+</body>
+</html>
