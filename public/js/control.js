@@ -11,14 +11,17 @@
   const statusText = document.getElementById('status-text');
   const sysInfo = document.getElementById('sys-info');
   const toastEl = document.getElementById('toast');
-  const previewToggle = document.getElementById('preview-toggle');
-  const previewContainer = document.getElementById('preview-container');
   const previewImg = document.getElementById('preview-img');
   const previewPlaceholder = document.getElementById('preview-placeholder');
+  const previewLed = document.getElementById('preview-led');
+  const burger = document.getElementById('burger');
+  const panel = document.getElementById('panel');
+  const panelOverlay = document.getElementById('panel-overlay');
 
   let ws;
   let toastTimer;
   let zoomTimer;
+  let previewOn = true;
 
   function toast(msg) {
     toastEl.textContent = msg;
@@ -27,13 +30,23 @@
     toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2500);
   }
 
+  // -- Panel toggle --
+  function togglePanel() {
+    const open = panel.classList.toggle('open');
+    burger.classList.toggle('open', open);
+    panelOverlay.classList.toggle('active', open);
+  }
+
+  burger.addEventListener('click', togglePanel);
+  panelOverlay.addEventListener('click', togglePanel);
+
   // -- WebSocket --
   function connect() {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     ws = new WebSocket(proto + '//' + location.host);
 
     ws.onopen = () => {
-      if (previewToggle.checked) {
+      if (previewOn) {
         ws.send(JSON.stringify({ type: 'preview-start' }));
       }
     };
@@ -75,15 +88,16 @@
     }
   }
 
-  // -- Preview toggle --
-  previewToggle.addEventListener('change', () => {
-    const on = previewToggle.checked;
-    previewContainer.style.display = on ? 'block' : 'none';
-    previewToggle.nextElementSibling.textContent = on ? 'On' : 'Off';
-    wsSend({ type: on ? 'preview-start' : 'preview-stop' });
-    if (!on) {
-      previewImg.style.display = 'none';
+  // -- Preview LED toggle --
+  previewLed.addEventListener('click', () => {
+    previewOn = !previewOn;
+    previewLed.classList.toggle('active', previewOn);
+    wsSend({ type: previewOn ? 'preview-start' : 'preview-stop' });
+    if (previewOn) {
       previewPlaceholder.style.display = 'flex';
+    } else {
+      previewImg.style.display = 'none';
+      previewPlaceholder.style.display = 'none';
     }
   });
 
@@ -101,7 +115,6 @@
       body: JSON.stringify({ x, y }),
     }).catch(() => {});
   });
-  previewImg.style.cursor = 'crosshair';
 
   // -- Load data --
   function loadSettings() {
@@ -148,7 +161,7 @@
         .then(r => r.json())
         .then(res => { if (!res.ok) toast('Error: ' + res.error); })
         .catch(() => toast('Failed'));
-    }, 150); // Debounce slider dragging
+    }, 150);
   }
 
   zoomSlider.addEventListener('input', () => {
@@ -158,15 +171,6 @@
   btnZoomReset.addEventListener('click', () => {
     zoomSlider.value = 100;
     applyZoom(100);
-  });
-
-  // Zoom presets
-  document.querySelectorAll('[data-zoom]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const z = parseInt(btn.dataset.zoom);
-      zoomSlider.value = z;
-      applyZoom(z);
-    });
   });
 
   // -- Actions --

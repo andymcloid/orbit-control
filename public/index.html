@@ -7,69 +7,69 @@
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
-  <header>
-    <h1><span>Orbit</span>Control</h1>
-    <div class="status-badge">
-      <div class="status-dot" id="status-dot"></div>
-      <span id="status-text">Browser offline</span>
-    </div>
-  </header>
 
-  <!-- Live Preview -->
-  <div class="card">
-    <div class="card-title-row">
-      <div class="card-title">Live Preview</div>
-      <label class="toggle">
-        <input type="checkbox" id="preview-toggle">
-        <span class="toggle-label">Off</span>
-      </label>
-    </div>
-    <div class="preview-container" id="preview-container" style="display:none;">
-      <img id="preview-img" alt="Kiosk preview">
-      <div class="preview-placeholder" id="preview-placeholder">Waiting for frame...</div>
-    </div>
-  </div>
+  <!-- Burger button -->
+  <button class="burger" id="burger" aria-label="Toggle menu">
+    <span></span><span></span><span></span>
+  </button>
 
-  <div class="card">
-    <div class="card-title">Kiosk URL</div>
-    <div class="url-row">
-      <input type="url" id="url-input" placeholder="https://example.com" spellcheck="false">
-      <button class="btn btn-primary" id="btn-navigate">Go</button>
-    </div>
-  </div>
 
-  <div class="card">
-    <div class="card-title">Actions</div>
-    <div class="actions">
-      <button class="btn" id="btn-reload">&#x21bb; Reload page</button>
-      <button class="btn" id="btn-restart">&#x27f3; Restart kiosk</button>
-      <button class="btn btn-danger" id="btn-reboot">&#x23fb; Reboot system</button>
+  <!-- Left slide-out panel -->
+  <nav class="panel" id="panel">
+    <div class="panel-header">
+      <h1><span>Orbit</span>Control</h1>
     </div>
-  </div>
 
-  <div class="card">
-    <div class="card-title">Page Zoom</div>
-    <div class="zoom-row">
-      <input type="range" id="zoom-slider" min="25" max="300" value="100" step="5">
-      <span class="zoom-value" id="zoom-value">100%</span>
-      <button class="btn" id="btn-zoom-reset">Reset</button>
+    <div class="panel-section">
+      <div class="panel-label">Kiosk URL</div>
+      <div class="url-row">
+        <input type="url" id="url-input" placeholder="https://example.com" spellcheck="false">
+        <button class="btn btn-primary" id="btn-navigate">Go</button>
+      </div>
     </div>
-    <div class="zoom-presets">
-      <button class="btn btn-small" data-zoom="50">50%</button>
-      <button class="btn btn-small" data-zoom="75">75%</button>
-      <button class="btn btn-small" data-zoom="100">100%</button>
-      <button class="btn btn-small" data-zoom="125">125%</button>
-      <button class="btn btn-small" data-zoom="150">150%</button>
-      <button class="btn btn-small" data-zoom="200">200%</button>
-    </div>
-  </div>
 
-  <div class="card">
-    <div class="card-title">System Info</div>
-    <dl class="sys-grid" id="sys-info">
-      <dt>Loading...</dt><dd></dd>
-    </dl>
-  </div>
+    <div class="panel-section">
+      <div class="panel-label">Page Zoom</div>
+      <div class="zoom-row">
+        <input type="range" id="zoom-slider" min="25" max="300" value="100" step="5">
+        <span class="zoom-value" id="zoom-value">100%</span>
+        <button class="btn btn-small" id="btn-zoom-reset">Reset</button>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-label">Actions</div>
+      <div class="actions">
+        <button class="btn" id="btn-reload">&#x21bb; Reload page</button>
+        <button class="btn" id="btn-restart">&#x27f3; Restart kiosk</button>
+        <button class="btn btn-danger" id="btn-reboot">&#x23fb; Reboot system</button>
+      </div>
+    </div>
+
+    <div class="panel-section panel-bottom">
+      <div class="panel-label">System Info</div>
+      <dl class="sys-grid" id="sys-info">
+        <dt>Loading...</dt><dd></dd>
+      </dl>
+    </div>
+  </nav>
+
+  <!-- Overlay for closing panel on mobile -->
+  <div class="panel-overlay" id="panel-overlay"></div>
+
+  <!-- Centered preview -->
+  <main class="stage">
+    <div class="preview-monitor">
+      <img class="monitor-frame" src="/img/preview.png" alt="" draggable="false">
+      <img id="preview-img" class="preview-screen" alt="Kiosk preview">
+      <div class="preview-placeholder" id="preview-placeholder"><div class="spinner"></div></div>
+      <div class="preview-led active" id="preview-led" title="Toggle preview"></div>
+      <div class="status-badge" id="status-badge">
+        <div class="status-dot" id="status-dot"></div>
+        <span id="status-text">Browser offline</span>
+      </div>
+    </div>
+  </main>
 
   <div class="toast" id="toast"></div>
 

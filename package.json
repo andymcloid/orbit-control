@@ -4,7 +4,9 @@
   "description": "Kiosk control panel for Orbit",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "dev": "node scripts/dev.js",
+    "setup": "bash scripts/setup.sh"
   },
   "dependencies": {
     "express": "^5.1.0",

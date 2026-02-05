@@ -120,7 +120,11 @@ app.post('/api/click', async (req, res) => {
 
 app.post('/api/restart-kiosk', async (req, res) => {
   try {
-    await restartKiosk();
+    if (process.env.ORBIT_DEV === '1') {
+      await cdp.closeBrowser();
+    } else {
+      await restartKiosk();
+    }
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -197,7 +201,7 @@ cdp.setOnScreenshotFrame((data) => {
 });
 
 // --- CDP connection state ---
-cdp.setOnConnectChange((connected) => {
+cdp.setOnConnectChange(async (connected) => {
   broadcastStatus();
   if (connected) {
     updatePreview();
@@ -205,12 +209,19 @@ cdp.setOnConnectChange((connected) => {
     if (settings.zoom && settings.zoom !== 1) {
       cdp.setZoom(settings.zoom).catch(() => {});
     }
+    // Navigate to saved URL if browser is on a blank page
+    try {
+      const currentUrl = await cdp.getCurrentUrl();
+      if (settings.url && (!currentUrl || currentUrl === 'about:blank' || currentUrl === 'chrome://newtab/')) {
+        cdp.navigate(settings.url).catch(() => {});
+      }
+    } catch {}
   }
 });
 
 // --- Start ---
 
-const PORT = 80;
+const PORT = parseInt(process.env.PORT, 10) || 80;
 server.listen(PORT, () => {
   console.log(`OrbitControl running on http://0.0.0.0:${PORT}`);
   cdp.connect();
