@@ -14,14 +14,13 @@
   const previewImg = document.getElementById('preview-img');
   const previewPlaceholder = document.getElementById('preview-placeholder');
   const previewLed = document.getElementById('preview-led');
-  const burger = document.getElementById('burger');
-  const panel = document.getElementById('panel');
-  const panelOverlay = document.getElementById('panel-overlay');
-
   let ws;
   let toastTimer;
   let zoomTimer;
   let previewOn = true;
+  // State: null = normal, 'wait-disconnect' = action fired, waiting for browser to go offline,
+  //        'wait-reconnect' = browser went offline, waiting for it to come back
+  let waitingForReconnect = null;
 
   function toast(msg) {
     toastEl.textContent = msg;
@@ -29,16 +28,6 @@
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2500);
   }
-
-  // -- Panel toggle --
-  function togglePanel() {
-    const open = panel.classList.toggle('open');
-    burger.classList.toggle('open', open);
-    panelOverlay.classList.toggle('active', open);
-  }
-
-  burger.addEventListener('click', togglePanel);
-  panelOverlay.addEventListener('click', togglePanel);
 
   // -- WebSocket --
   function connect() {
@@ -58,6 +47,7 @@
       if (msg.type === 'status') {
         updateStatus(msg);
       } else if (msg.type === 'frame') {
+        if (waitingForReconnect) return;
         previewImg.src = 'data:image/jpeg;base64,' + msg.data;
         previewImg.style.display = 'block';
         previewPlaceholder.style.display = 'none';
@@ -86,6 +76,18 @@
       zoomSlider.value = z;
       zoomValue.textContent = z + '%';
     }
+    // State machine: wait for disconnect then reconnect
+    if (waitingForReconnect === 'wait-disconnect' && !msg.browser_connected) {
+      waitingForReconnect = 'wait-reconnect';
+    } else if (waitingForReconnect === 'wait-reconnect' && msg.browser_connected) {
+      waitingForReconnect = null;
+    }
+  }
+
+  function showPreviewLoader(awaitReconnect) {
+    previewImg.style.display = 'none';
+    if (previewOn) previewPlaceholder.style.display = 'flex';
+    if (awaitReconnect) waitingForReconnect = 'wait-disconnect';
   }
 
   // -- Preview LED toggle --
@@ -141,11 +143,11 @@
           row('Disk', info.disk.percent + ' (' + info.disk.free + ' free)') +
           row('Uptime', info.uptime);
       })
-      .catch(() => { sysInfo.innerHTML = '<dt>Error</dt><dd>Could not load</dd>'; });
+      .catch(() => { sysInfo.innerHTML = '<tr><td>Error</td><td>Could not load</td></tr>'; });
   }
 
   function row(label, value) {
-    return '<dt>' + label + '</dt><dd>' + (value || 'N/A') + '</dd>';
+    return '<tr><td>' + label + '</td><td>' + (value || 'N/A') + '</td></tr>';
   }
 
   // -- Zoom --
@@ -178,6 +180,7 @@
     const url = urlInput.value.trim();
     if (!url) return;
     btnNavigate.disabled = true;
+    showPreviewLoader();
     fetch('/api/navigate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -196,6 +199,7 @@
   });
 
   btnReload.addEventListener('click', () => {
+    showPreviewLoader();
     fetch('/api/reload', { method: 'POST' })
       .then(() => toast('Reloading page...'))
       .catch(() => toast('Failed'));
@@ -203,6 +207,7 @@
 
   btnRestart.addEventListener('click', () => {
     if (!confirm('Restart the kiosk browser?')) return;
+    showPreviewLoader(true);
     fetch('/api/restart-kiosk', { method: 'POST' })
       .then(() => toast('Restarting kiosk...'))
       .catch(() => toast('Failed'));
@@ -210,6 +215,7 @@
 
   btnReboot.addEventListener('click', () => {
     if (!confirm('Reboot the entire system? This will take ~30 seconds.')) return;
+    showPreviewLoader(true);
     fetch('/api/reboot', { method: 'POST' })
       .then(() => toast('Rebooting system...'))
       .catch(() => toast('Failed'));

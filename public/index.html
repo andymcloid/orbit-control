@@ -8,14 +8,8 @@
 </head>
 <body>
 
-  <!-- Burger button -->
-  <button class="burger" id="burger" aria-label="Toggle menu">
-    <span></span><span></span><span></span>
-  </button>
-
-
-  <!-- Left slide-out panel -->
-  <nav class="panel" id="panel">
+  <!-- Left panel -->
+  <nav class="panel">
     <div class="panel-header">
       <h1><span>Orbit</span>Control</h1>
     </div>
@@ -48,14 +42,11 @@
 
     <div class="panel-section panel-bottom">
       <div class="panel-label">System Info</div>
-      <dl class="sys-grid" id="sys-info">
-        <dt>Loading...</dt><dd></dd>
-      </dl>
+      <table class="sys-table" id="sys-info">
+        <tr><td>Loading...</td><td></td></tr>
+      </table>
     </div>
   </nav>
-
-  <!-- Overlay for closing panel on mobile -->
-  <div class="panel-overlay" id="panel-overlay"></div>
 
   <!-- Centered preview -->
   <main class="stage">
