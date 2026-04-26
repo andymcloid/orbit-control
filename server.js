@@ -122,6 +122,27 @@ app.post('/api/click', async (req, res) => {
   }
 });
 
+// Toggle between kiosk URL and the admin panel served at localhost. Bound to
+// a USB-keyboard hotkey via xbindkeys so the user can pop into admin without
+// network access — handy when WiFi/tunnel is flaky.
+app.post('/api/admin-toggle', async (req, res) => {
+  const settings = readSettings();
+  const port = parseInt(process.env.PORT, 10) || 80;
+  const adminUrl = 'http://localhost' + (port === 80 ? '' : ':' + port) + '/';
+  let currentUrl = '';
+  try {
+    currentUrl = (await cdp.getCurrentUrl()) || '';
+  } catch {}
+  const isOnAdmin = /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:|\/|$)/.test(currentUrl);
+  const target = isOnAdmin ? (settings.url || 'https://example.com') : adminUrl;
+  try {
+    await cdp.navigate(target);
+    res.json({ ok: true, target, was: currentUrl });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/restart-kiosk', async (req, res) => {
   try {
     if (process.env.ORBIT_DEV === '1') {

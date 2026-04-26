@@ -44,7 +44,7 @@ info "Checking system prerequisites..."
 
 PACKAGES_TO_INSTALL=()
 
-for pkg in chromium-browser unclutter-xfixes xinit curl; do
+for pkg in chromium-browser unclutter-xfixes xinit curl xbindkeys; do
   if ! command -v "$pkg" &>/dev/null && ! dpkg -l "$pkg" 2>/dev/null | grep -q '^ii'; then
     PACKAGES_TO_INSTALL+=("$pkg")
   fi

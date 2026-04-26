@@ -50,10 +50,27 @@ read_kiosk_args() {
 read_kiosk_args
 echo "[$(date)] Starting kiosk: ${KIOSK_W}x${KIOSK_H} URL=$KIOSK_URL" >> "$LOG"
 
+# --- Hotkey config: Ctrl+Alt+A toggles kiosk ↔ admin panel ---
+# Self-heal: regenerate xbindkeysrc if missing so a fresh install works without
+# extra setup steps. Requires `xbindkeys` package installed (see setup.sh).
+XBINDKEYS_CONF="$HOME/.xbindkeysrc"
+if [ ! -f "$XBINDKEYS_CONF" ] || ! grep -q 'admin-toggle' "$XBINDKEYS_CONF"; then
+  cat > "$XBINDKEYS_CONF" <<'EOF'
+# OrbitControl hotkeys — toggle between the kiosk URL and the admin panel.
+# Useful when network is down and you can't reach the panel from elsewhere.
+# Plug in a USB keyboard, press Ctrl+Alt+A.
+"curl -sf -X POST http://localhost/api/admin-toggle"
+  control + alt + a
+EOF
+fi
+
 # Kiosk loop — if chromium exits/crashes, it restarts automatically
 while true; do
   xinit /bin/sh -c "
     unclutter-xfixes -idle 10 &
+    # Background hotkey daemon (Ctrl+Alt+A → admin panel toggle). Silently
+    # skipped if xbindkeys isn't installed yet.
+    command -v xbindkeys >/dev/null && xbindkeys 2>/dev/null
     # Try to set the X screen to the requested kiosk size. If the mode isn't
     # supported by the connected display, this is a no-op and chromium falls
     # back to --window-size below.
