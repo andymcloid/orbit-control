@@ -54,6 +54,11 @@ echo "[$(date)] Starting kiosk: ${KIOSK_W}x${KIOSK_H} URL=$KIOSK_URL" >> "$LOG"
 while true; do
   xinit /bin/sh -c "
     unclutter-xfixes -idle 10 &
+    # Try to set the X screen to the requested kiosk size. If the mode isn't
+    # supported by the connected display, this is a no-op and chromium falls
+    # back to --window-size below.
+    OUT=\$(xrandr 2>/dev/null | awk '/ connected/ {print \$1; exit}')
+    [ -n \"\$OUT\" ] && xrandr --output \"\$OUT\" --mode ${KIOSK_W}x${KIOSK_H} 2>/dev/null
     exec chromium-browser \
       --kiosk \
       --start-fullscreen \
