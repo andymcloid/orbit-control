@@ -327,6 +327,162 @@ body {
   box-shadow: 0 0 8px rgba(76, 223, 138, 0.6), 0 0 20px rgba(76, 223, 138, 0.25);
 }
 
+/* ── Display resolution ── */
+
+.display-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.display-row select {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+  cursor: pointer;
+}
+
+.display-row select:focus {
+  border-color: var(--accent);
+}
+
+.display-custom {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.display-custom input[type="number"] {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+  font-family: 'SF Mono', 'Consolas', monospace;
+}
+
+.display-custom input[type="number"]:focus {
+  border-color: var(--accent);
+}
+
+.display-x {
+  color: var(--text-dim);
+  font-size: 14px;
+}
+
+.display-hint {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 8px;
+}
+
+.display-hint.warn {
+  color: var(--warn);
+}
+
+/* ── Sys info status colors ── */
+
+.sys-status-ok    { color: var(--success); }
+.sys-status-warn  { color: var(--warn); }
+.sys-status-bad   { color: var(--danger); }
+
+/* ── Update modal ── */
+
+.update-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  z-index: 400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.update-modal[hidden] { display: none; }
+
+.update-modal-inner {
+  width: 100%;
+  max-width: 720px;
+  max-height: 80vh;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.update-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.update-modal-header h2 {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.update-step {
+  padding: 12px 20px;
+  font-size: 12px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  border-bottom: 1px solid var(--border);
+}
+
+.update-output {
+  flex: 1;
+  margin: 0;
+  padding: 16px 20px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'SF Mono', 'Consolas', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  min-height: 240px;
+  max-height: 50vh;
+}
+
+.update-output .out-err { color: var(--warn); }
+.update-output .out-fail { color: var(--danger); }
+.update-output .out-ok { color: var(--success); }
+
+.update-status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.update-status-row.ok { color: var(--success); }
+.update-status-row.bad { color: var(--danger); }
+
+.spinner-inline {
+  width: 14px;
+  height: 14px;
+  border-width: 2px;
+}
+
 /* ── Toast ── */
 
 .toast {

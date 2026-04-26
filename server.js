@@ -4,6 +4,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { getSystemInfo, restartKiosk, reboot } = require('./lib/system');
+const update = require('./lib/update');
 const cdp = require('./lib/cdp');
 
 const SETTINGS_PATH = path.join(__dirname, 'settings.json');
@@ -50,7 +51,9 @@ app.post('/api/settings', (req, res) => {
 
 app.get('/api/system-info', async (req, res) => {
   try {
-    res.json(await getSystemInfo());
+    const info = await getSystemInfo();
+    info.git = update.getGitInfo(__dirname);
+    res.json(info);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -134,6 +137,39 @@ app.post('/api/restart-kiosk', async (req, res) => {
 app.post('/api/reboot', (req, res) => {
   res.json({ ok: true, message: 'Rebooting...' });
   setTimeout(() => reboot(), 1000);
+});
+
+let updateInProgress = false;
+
+app.post('/api/update', async (req, res) => {
+  if (updateInProgress) return res.status(409).json({ error: 'update already running' });
+  if (process.env.ORBIT_DEV === '1') {
+    return res.status(400).json({ error: 'update is disabled in dev mode' });
+  }
+  updateInProgress = true;
+  res.json({ ok: true });
+
+  const broadcast = (msg) => {
+    const data = JSON.stringify(msg);
+    for (const ws of controlClients) {
+      if (ws.readyState === 1) ws.send(data);
+    }
+  };
+
+  try {
+    await update.runUpdate(__dirname, {
+      onLine: (stream, line) => broadcast({ type: 'update-output', stream, line }),
+      onStep: (step) => broadcast({ type: 'update-step', step }),
+    });
+    update.invalidateGitInfoCache();
+    broadcast({ type: 'update-status', status: 'restarting' });
+    // Give the websocket a moment to flush, then exit. systemd's Restart=always
+    // brings the service back up with the freshly pulled code.
+    setTimeout(() => process.exit(0), 1500);
+  } catch (err) {
+    broadcast({ type: 'update-status', status: 'error', error: err.message });
+    updateInProgress = false;
+  }
 });
 
 // --- WebSocket (control panel live updates + preview) ---

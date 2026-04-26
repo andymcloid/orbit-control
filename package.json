@@ -6,10 +6,14 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node scripts/dev.js",
-    "setup": "bash scripts/setup.sh"
+    "setup": "bash scripts/setup.sh",
+    "ssh": "node scripts/orbit-ssh.js"
   },
   "dependencies": {
     "express": "^5.1.0",
     "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "ssh2": "^1.17.0"
   }
 }

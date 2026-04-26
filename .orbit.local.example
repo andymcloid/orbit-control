@@ -1,0 +1,24 @@
+# OrbitControl SSH dev config
+#
+# 1. Copy this file to `.orbit.local` (already in .gitignore)
+# 2. Fill in your Pi's connection details below
+# 3. Test with: ./scripts/orbit-ssh.sh "uptime"
+#
+# Auth: provide ORBIT_KEY (recommended) OR ORBIT_PASS (requires sshpass).
+# If ORBIT_SUDO_PASS is set, it is piped to stdin so `sudo -S <cmd>` works
+# without prompting.
+
+ORBIT_HOST=orbit.local
+ORBIT_USER=dietpi
+
+# ── Auth: pick ONE ───────────────────────────────────────────
+# Path to private key (recommended; no plaintext password on disk)
+ORBIT_KEY=~/.ssh/id_ed25519
+
+# OR password (requires `sshpass` installed locally)
+# ORBIT_PASS=changeme
+
+# ── Sudo password (optional) ─────────────────────────────────
+# Allows running `sudo -S <cmd>` without an interactive prompt.
+# Tip: set up NOPASSWD sudoers for your user instead and leave this empty.
+ORBIT_SUDO_PASS=

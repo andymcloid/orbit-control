@@ -32,10 +32,32 @@
     </div>
 
     <div class="panel-section">
+      <div class="panel-label">Display Resolution</div>
+      <div class="display-row">
+        <select id="display-preset">
+          <option value="1920x1080">1920 × 1080 (1080p)</option>
+          <option value="1280x720">1280 × 720 (720p)</option>
+          <option value="1024x768">1024 × 768</option>
+          <option value="960x640">960 × 640</option>
+          <option value="800x600">800 × 600</option>
+          <option value="custom">Custom...</option>
+        </select>
+        <button class="btn btn-small" id="btn-display-apply">Apply</button>
+      </div>
+      <div class="display-custom" id="display-custom" hidden>
+        <input type="number" id="display-w" placeholder="W" min="320" max="7680">
+        <span class="display-x">×</span>
+        <input type="number" id="display-h" placeholder="H" min="240" max="4320">
+      </div>
+      <div class="display-hint" id="display-hint">Applies on kiosk restart.</div>
+    </div>
+
+    <div class="panel-section">
       <div class="panel-label">Actions</div>
       <div class="actions">
         <button class="btn" id="btn-reload">&#x21bb; Reload page</button>
         <button class="btn" id="btn-restart">&#x27f3; Restart kiosk</button>
+        <button class="btn" id="btn-update">&#x2913; Update from Git</button>
         <button class="btn btn-danger" id="btn-reboot">&#x23fb; Reboot system</button>
       </div>
     </div>
@@ -63,6 +85,21 @@
   </main>
 
   <div class="toast" id="toast"></div>
+
+  <div class="update-modal" id="update-modal" hidden>
+    <div class="update-modal-inner">
+      <div class="update-modal-header">
+        <h2 id="update-title">Updating...</h2>
+        <button class="btn btn-small" id="btn-update-close" hidden>Close</button>
+      </div>
+      <div class="update-step" id="update-step-text">Preparing...</div>
+      <pre class="update-output" id="update-output"></pre>
+      <div class="update-status-row" id="update-status-row">
+        <div class="spinner spinner-inline"></div>
+        <span id="update-substatus">Connecting...</span>
+      </div>
+    </div>
+  </div>
 
   <script src="/js/control.js"></script>
 </body>
