@@ -22,6 +22,23 @@
   const displayH = document.getElementById('display-h');
   const btnDisplayApply = document.getElementById('btn-display-apply');
   const displayHint = document.getElementById('display-hint');
+  const netDot = document.getElementById('net-dot');
+  const netSsid = document.getElementById('net-ssid');
+  const btnNetManage = document.getElementById('btn-net-manage');
+  const wifiModal = document.getElementById('wifi-modal');
+  const btnWifiClose = document.getElementById('btn-wifi-close');
+  const btnWifiScan = document.getElementById('btn-wifi-scan');
+  const wifiList = document.getElementById('wifi-list');
+  const wifiSaved = document.getElementById('wifi-saved');
+  const wifiHint = document.getElementById('wifi-hint');
+  const wifiModalDot = document.getElementById('wifi-modal-dot');
+  const wifiModalSsid = document.getElementById('wifi-modal-ssid');
+  const wifiConnectModal = document.getElementById('wifi-connect-modal');
+  const wifiConnectTitle = document.getElementById('wifi-connect-title');
+  const wifiPassword = document.getElementById('wifi-password');
+  const btnWifiConnectSubmit = document.getElementById('btn-wifi-connect-submit');
+  const btnWifiConnectCancel = document.getElementById('btn-wifi-connect-cancel');
+  const wifiConnectMsg = document.getElementById('wifi-connect-msg');
   const updateModal = document.getElementById('update-modal');
   const updateTitle = document.getElementById('update-title');
   const updateStepText = document.getElementById('update-step-text');
@@ -382,6 +399,183 @@
     updateModal.hidden = true;
   });
 
+  // -- WiFi --
+  let wifiConnectTarget = null;
+  let wifiSavedSet = new Set();
+
+  function refreshWifiPanel() {
+    fetch('/api/wifi/status')
+      .then((r) => r.json())
+      .then((data) => {
+        const s = data.status || {};
+        const ssid = s.ssid || '—';
+        const online = s.connected;
+        netDot.className = 'net-dot' + (online ? ' online' : '');
+        netSsid.textContent = ssid;
+        if (wifiModalSsid) {
+          wifiModalSsid.textContent = ssid + (online && s.ip ? ' (' + s.ip + ')' : '');
+          wifiModalDot.className = 'net-dot' + (online ? ' online' : '');
+        }
+        wifiSavedSet = new Set((data.saved || []).map((n) => n.ssid));
+        renderSavedNetworks(data.saved || []);
+      })
+      .catch(() => {});
+  }
+
+  function renderSavedNetworks(saved) {
+    if (!wifiSaved) return;
+    if (!saved.length) {
+      wifiSaved.innerHTML = '<div class="wifi-empty">No saved networks.</div>';
+      return;
+    }
+    wifiSaved.innerHTML = saved
+      .map(
+        (n) =>
+          '<div class="wifi-item' +
+          (n.current ? ' current' : '') +
+          '" data-ssid="' + escapeAttr(n.ssid) + '">' +
+          '<span class="wifi-item-ssid">' + escapeText(n.ssid) + '</span>' +
+          (n.current ? '<span class="wifi-item-meta">connected</span>' : '<span class="wifi-item-meta">saved</span>') +
+          '<button class="wifi-item-forget" data-forget="' + escapeAttr(n.ssid) + '">forget</button>' +
+          '</div>'
+      )
+      .join('');
+  }
+
+  function escapeText(s) {
+    return String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+  }
+  function escapeAttr(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  }
+
+  function qualityClass(q) {
+    if (q >= 75) return 'q-4';
+    if (q >= 50) return 'q-3';
+    if (q >= 25) return 'q-2';
+    return 'q-1';
+  }
+
+  function renderScanResults(networks) {
+    if (!networks.length) {
+      wifiList.innerHTML = '<div class="wifi-empty">No networks found. Try scanning again.</div>';
+      return;
+    }
+    wifiList.innerHTML = networks
+      .map((n) => {
+        const isSaved = wifiSavedSet.has(n.ssid);
+        return (
+          '<div class="wifi-item" data-ssid="' + escapeAttr(n.ssid) + '" data-secured="' + (n.secured ? '1' : '0') + '">' +
+          '<span class="wifi-item-bars ' + qualityClass(n.quality) + '"><span></span><span></span><span></span><span></span></span>' +
+          '<span class="wifi-item-ssid">' + escapeText(n.ssid) + '</span>' +
+          '<span class="wifi-item-lock">' + (n.secured ? '🔒' : '') + '</span>' +
+          '<span class="wifi-item-meta">' + (isSaved ? 'saved · ' : '') + n.quality + '%</span>' +
+          '</div>'
+        );
+      })
+      .join('');
+  }
+
+  function openWifiModal() {
+    wifiModal.hidden = false;
+    refreshWifiPanel();
+    wifiList.innerHTML = '<div class="wifi-empty">Click Scan to look for networks.</div>';
+  }
+
+  function closeWifiModal() { wifiModal.hidden = true; }
+
+  function openConnectModal(ssid, secured) {
+    wifiConnectTarget = ssid;
+    wifiConnectTitle.textContent = 'Connect to "' + ssid + '"';
+    wifiPassword.value = '';
+    wifiPassword.placeholder = secured ? 'Network password' : '(open network — leave empty)';
+    wifiConnectMsg.textContent = '';
+    wifiConnectMsg.className = 'wifi-connect-msg';
+    wifiConnectModal.hidden = false;
+    setTimeout(() => wifiPassword.focus(), 50);
+  }
+
+  function closeConnectModal() {
+    wifiConnectModal.hidden = true;
+    wifiConnectTarget = null;
+  }
+
+  btnNetManage.addEventListener('click', openWifiModal);
+  btnWifiClose.addEventListener('click', closeWifiModal);
+  btnWifiConnectCancel.addEventListener('click', closeConnectModal);
+
+  btnWifiScan.addEventListener('click', () => {
+    btnWifiScan.disabled = true;
+    wifiHint.textContent = 'Scanning...';
+    wifiList.innerHTML = '<div class="wifi-empty">Scanning, ~3s...</div>';
+    fetch('/api/wifi/scan')
+      .then((r) => r.json())
+      .then((data) => {
+        wifiHint.textContent = (data.networks || []).length + ' networks';
+        renderScanResults(data.networks || []);
+      })
+      .catch(() => { wifiHint.textContent = 'Scan failed'; })
+      .finally(() => { btnWifiScan.disabled = false; });
+  });
+
+  wifiList.addEventListener('click', (e) => {
+    const item = e.target.closest('.wifi-item');
+    if (!item || !item.dataset.ssid) return;
+    openConnectModal(item.dataset.ssid, item.dataset.secured === '1');
+  });
+
+  wifiSaved.addEventListener('click', (e) => {
+    const forget = e.target.closest('[data-forget]');
+    if (forget) {
+      e.stopPropagation();
+      const ssid = forget.dataset.forget;
+      if (!confirm('Forget saved network "' + ssid + '"?')) return;
+      fetch('/api/wifi/forget', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ssid }),
+      })
+        .then((r) => r.json())
+        .then(() => { toast('Forgot ' + ssid); refreshWifiPanel(); })
+        .catch(() => toast('Failed to forget'));
+      return;
+    }
+    const item = e.target.closest('.wifi-item');
+    if (item && item.dataset.ssid) openConnectModal(item.dataset.ssid, true);
+  });
+
+  btnWifiConnectSubmit.addEventListener('click', () => {
+    if (!wifiConnectTarget) return;
+    btnWifiConnectSubmit.disabled = true;
+    wifiConnectMsg.textContent = 'Connecting...';
+    wifiConnectMsg.className = 'wifi-connect-msg';
+    fetch('/api/wifi/connect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ssid: wifiConnectTarget, password: wifiPassword.value }),
+    })
+      .then((r) => r.json().then((j) => ({ status: r.status, body: j })))
+      .then(({ status, body }) => {
+        if (status >= 400 || (body && body.error)) {
+          wifiConnectMsg.textContent = (body && body.error) || 'failed';
+          wifiConnectMsg.className = 'wifi-connect-msg err';
+        } else {
+          wifiConnectMsg.textContent = 'Saved. Switching to ' + wifiConnectTarget + '...';
+          wifiConnectMsg.className = 'wifi-connect-msg ok';
+          setTimeout(() => { closeConnectModal(); refreshWifiPanel(); }, 1500);
+        }
+      })
+      .catch(() => {
+        wifiConnectMsg.textContent = 'Network error';
+        wifiConnectMsg.className = 'wifi-connect-msg err';
+      })
+      .finally(() => { btnWifiConnectSubmit.disabled = false; });
+  });
+
+  wifiPassword.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') btnWifiConnectSubmit.click();
+  });
+
   // -- Init --
   loadSettings();
   loadSystemInfo();
@@ -390,4 +584,8 @@
 
   // Sync display select after initial settings load
   fetch('/api/settings').then(r => r.json()).then(setDisplaySelectFromSettings).catch(() => {});
+
+  // Initial WiFi state + refresh every 15s for current SSID
+  refreshWifiPanel();
+  setInterval(refreshWifiPanel, 15000);
 })();
