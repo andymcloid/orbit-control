@@ -32,6 +32,17 @@
     </div>
 
     <div class="panel-section">
+      <div class="panel-label">Network</div>
+      <div class="net-row">
+        <div class="net-current" id="net-current">
+          <span class="net-dot" id="net-dot"></span>
+          <span id="net-ssid">—</span>
+        </div>
+        <button class="btn btn-small" id="btn-net-manage">Manage</button>
+      </div>
+    </div>
+
+    <div class="panel-section">
       <div class="panel-label">Display Resolution</div>
       <div class="display-row">
         <select id="display-preset">
@@ -85,6 +96,45 @@
   </main>
 
   <div class="toast" id="toast"></div>
+
+  <div class="update-modal" id="wifi-modal" hidden>
+    <div class="update-modal-inner">
+      <div class="update-modal-header">
+        <h2>WiFi Networks</h2>
+        <button class="btn btn-small" id="btn-wifi-close">Close</button>
+      </div>
+      <div class="wifi-current-box" id="wifi-current-box">
+        <span class="net-dot" id="wifi-modal-dot"></span>
+        <span id="wifi-modal-ssid">—</span>
+      </div>
+      <div class="wifi-actions-row">
+        <button class="btn btn-small" id="btn-wifi-scan">↻ Scan</button>
+        <span class="wifi-hint" id="wifi-hint"></span>
+      </div>
+      <div class="wifi-list" id="wifi-list">
+        <div class="wifi-empty">Click Scan to look for networks.</div>
+      </div>
+      <div class="wifi-saved-label">Saved</div>
+      <div class="wifi-saved" id="wifi-saved"></div>
+    </div>
+  </div>
+
+  <div class="update-modal" id="wifi-connect-modal" hidden>
+    <div class="update-modal-inner update-modal-small">
+      <div class="update-modal-header">
+        <h2 id="wifi-connect-title">Connect</h2>
+        <button class="btn btn-small" id="btn-wifi-connect-cancel">Cancel</button>
+      </div>
+      <div class="wifi-connect-body">
+        <label class="wifi-pw-label">
+          <span>Password (leave empty for open network)</span>
+          <input type="password" id="wifi-password" autocomplete="off" spellcheck="false">
+        </label>
+        <button class="btn btn-primary" id="btn-wifi-connect-submit">Connect</button>
+        <div class="wifi-connect-msg" id="wifi-connect-msg"></div>
+      </div>
+    </div>
+  </div>
 
   <div class="update-modal" id="update-modal" hidden>
     <div class="update-modal-inner">

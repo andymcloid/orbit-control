@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { getSystemInfo, restartKiosk, reboot } = require('./lib/system');
 const update = require('./lib/update');
+const wifi = require('./lib/wifi');
 const cdp = require('./lib/cdp');
 
 const SETTINGS_PATH = path.join(__dirname, 'settings.json');
@@ -137,6 +138,46 @@ app.post('/api/restart-kiosk', async (req, res) => {
 app.post('/api/reboot', (req, res) => {
   res.json({ ok: true, message: 'Rebooting...' });
   setTimeout(() => reboot(), 1000);
+});
+
+// --- WiFi management ---
+
+app.get('/api/wifi/status', async (req, res) => {
+  try {
+    const [status, saved] = await Promise.all([wifi.getStatus(), wifi.listSaved()]);
+    res.json({ status, saved });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/wifi/scan', async (req, res) => {
+  try {
+    res.json({ networks: await wifi.scan() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/wifi/connect', async (req, res) => {
+  const { ssid, password } = req.body || {};
+  if (!ssid) return res.status(400).json({ error: 'ssid required' });
+  try {
+    const result = await wifi.connect(ssid, password);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/wifi/forget', async (req, res) => {
+  const { ssid } = req.body || {};
+  if (!ssid) return res.status(400).json({ error: 'ssid required' });
+  try {
+    res.json(await wifi.forget(ssid));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 let updateInProgress = false;
