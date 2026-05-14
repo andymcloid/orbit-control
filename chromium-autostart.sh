@@ -1,9 +1,9 @@
 #!/bin/bash
-# OrbitControl Kiosk Autostart
-# Chromium loads URL directly; OrbitControl controls it via CDP (port 9222).
+# OrbitControl Kiosk Autostart (Pi OS Lite + cage)
+# Chromium loads URL directly under cage; OrbitControl controls it via CDP (port 9222).
 
 OC_PORT="${ORBIT_PORT:-80}"
-LOG=/home/kiosk/kiosk.log
+LOG=$HOME/kiosk.log
 
 # Wait for OrbitControl server to be ready (max 30s)
 echo "[$(date)] Waiting for OrbitControl server (port $OC_PORT)..." >> "$LOG"
@@ -21,7 +21,6 @@ fetch_settings() {
 }
 
 extract() {
-  # $1 = json, $2 = jq-style key path (limited grep-based extraction)
   echo "$1" | sed -n "s/.*\"$2\":\"\\([^\"]*\\)\".*/\\1/p"
 }
 
@@ -30,15 +29,12 @@ extract_num() {
 }
 
 read_kiosk_args() {
-  local s url w h
+  local s url w h res
   s=$(fetch_settings)
   url=$(extract "$s" "url"); url="${url:-https://dietpi.com}"
-  # Width/height are nested under "resolution"; pull them out of that subtree.
-  local res
   res=$(echo "$s" | sed -n 's/.*"resolution":{\([^}]*\)}.*/\1/p')
   w=$(extract_num "$res" "width")
   h=$(extract_num "$res" "height")
-  # Sanity: anything below 800x600 likely means stale/bogus data → fall back
   if [ -z "$w" ] || [ -z "$h" ] || [ "$w" -lt 800 ] || [ "$h" -lt 600 ]; then
     w=1920; h=1080
   fi
@@ -47,53 +43,27 @@ read_kiosk_args() {
   KIOSK_H="$h"
 }
 
-read_kiosk_args
-echo "[$(date)] Starting kiosk: ${KIOSK_W}x${KIOSK_H} URL=$KIOSK_URL" >> "$LOG"
-
-# --- Hotkey config: Ctrl+Alt+A toggles kiosk ↔ admin panel ---
-# Self-heal: regenerate xbindkeysrc if missing so a fresh install works without
-# extra setup steps. Requires `xbindkeys` package installed (see setup.sh).
-XBINDKEYS_CONF="$HOME/.xbindkeysrc"
-if [ ! -f "$XBINDKEYS_CONF" ] || ! grep -q 'admin-toggle' "$XBINDKEYS_CONF"; then
-  cat > "$XBINDKEYS_CONF" <<'EOF'
-# OrbitControl hotkeys — toggle between the kiosk URL and the admin panel.
-# Useful when network is down and you can't reach the panel from elsewhere.
-# Plug in a USB keyboard, press Ctrl+Alt+A.
-"curl -sf -X POST http://localhost/api/admin-toggle"
-  control + alt + a
-EOF
-fi
-
-# Kiosk loop — if chromium exits/crashes, it restarts automatically
+# Kiosk loop — if chromium/cage exits/crashes, it restarts automatically
 while true; do
-  xinit /bin/sh -c "
-    unclutter-xfixes -idle 10 &
-    # Background hotkey daemon (Ctrl+Alt+A → admin panel toggle). Silently
-    # skipped if xbindkeys isn't installed yet.
-    command -v xbindkeys >/dev/null && xbindkeys 2>/dev/null
-    # Try to set the X screen to the requested kiosk size. If the mode isn't
-    # supported by the connected display, this is a no-op and chromium falls
-    # back to --window-size below.
-    OUT=\$(xrandr 2>/dev/null | awk '/ connected/ {print \$1; exit}')
-    [ -n \"\$OUT\" ] && xrandr --output \"\$OUT\" --mode ${KIOSK_W}x${KIOSK_H} 2>/dev/null
-    exec chromium-browser \
-      --kiosk \
-      --start-fullscreen \
-      --window-size=${KIOSK_W},${KIOSK_H} \
-      --window-position=0,0 \
-      --noerrdialogs \
-      --disable-infobars \
-      --ignore-gpu-blocklist \
-      --enable-gpu-rasterization \
-      --enable-zero-copy \
-      --use-gl=egl \
-      --enable-features=VaapiVideoDecoder,CanvasOopRasterization \
-      --no-sandbox \
-      --remote-debugging-port=9222 \
-      '$KIOSK_URL'
-  " -- :0 vt1 >> "$LOG" 2>&1
-
-  echo "[$(date)] Chromium exited, restarting in 3s..." >> "$LOG"
   read_kiosk_args
+  echo "[$(date)] Starting kiosk: ${KIOSK_W}x${KIOSK_H} URL=$KIOSK_URL" >> "$LOG"
+
+  cage -s -- chromium-browser \
+    --ozone-platform=wayland \
+    --enable-features=UseOzonePlatform,VaapiVideoDecoder,CanvasOopRasterization \
+    --kiosk \
+    --start-fullscreen \
+    --window-size=${KIOSK_W},${KIOSK_H} \
+    --noerrdialogs \
+    --disable-infobars \
+    --ignore-gpu-blocklist \
+    --enable-gpu-rasterization \
+    --enable-zero-copy \
+    --use-gl=egl \
+    --no-sandbox \
+    --remote-debugging-port=9222 \
+    "$KIOSK_URL" >> "$LOG" 2>&1
+
+  echo "[$(date)] cage/chromium exited, restarting in 3s..." >> "$LOG"
   sleep 3
 done
