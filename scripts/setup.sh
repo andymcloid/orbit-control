@@ -52,6 +52,20 @@ else
   info "All system packages already installed."
 fi
 
+# --- Ensure NetworkManager is the active network manager ---
+# Pi OS Lite Bookworm ships with dhcpcd as the default; we need NM running
+# so `nmcli` (used by lib/wifi.js) actually sees wlan0 as a managed device.
+
+if ! systemctl is-active --quiet NetworkManager; then
+  info "Enabling NetworkManager..."
+  systemctl enable --now NetworkManager
+fi
+
+if systemctl is-enabled --quiet dhcpcd 2>/dev/null; then
+  info "Disabling dhcpcd (NetworkManager takes over)..."
+  systemctl disable --now dhcpcd
+fi
+
 # --- Install Node.js 20.x if missing or too old ---
 
 NODE_BIN="$(which node 2>/dev/null || echo '')"

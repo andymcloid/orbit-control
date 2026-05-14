@@ -16,7 +16,7 @@ function readSettings() {
     return JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8'));
   } catch {
     return {
-      url: 'https://dietpi.com',
+      url: 'https://example.com',
       resolution: { width: 1920, height: 1080 },
       hideCursorDelay: 10,
       name: 'Orbit',
@@ -150,8 +150,8 @@ app.post('/api/click', async (req, res) => {
 });
 
 // Toggle between kiosk URL and the admin panel served at localhost. Bound to
-// a USB-keyboard hotkey via xbindkeys so the user can pop into admin without
-// network access — handy when WiFi/tunnel is flaky.
+// a USB-keyboard hotkey via lib/hotkey.js (evdev) so the user can pop into
+// admin without network access — handy when WiFi/tunnel is flaky.
 app.post('/api/admin-toggle', async (req, res) => {
   try {
     const result = await toggleAdminPanel();

@@ -31,7 +31,7 @@ extract_num() {
 read_kiosk_args() {
   local s url w h res
   s=$(fetch_settings)
-  url=$(extract "$s" "url"); url="${url:-https://dietpi.com}"
+  url=$(extract "$s" "url"); url="${url:-https://example.com}"
   res=$(echo "$s" | sed -n 's/.*"resolution":{\([^}]*\)}.*/\1/p')
   w=$(extract_num "$res" "width")
   h=$(extract_num "$res" "height")

@@ -9,7 +9,7 @@
 # without prompting.
 
 ORBIT_HOST=orbit.local
-ORBIT_USER=dietpi
+ORBIT_USER=pi
 
 # ── Auth: pick ONE ───────────────────────────────────────────
 # Path to private key (recommended; no plaintext password on disk)
