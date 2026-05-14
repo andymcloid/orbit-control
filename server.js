@@ -7,6 +7,7 @@ const { getSystemInfo, restartKiosk, reboot } = require('./lib/system');
 const update = require('./lib/update');
 const wifi = require('./lib/wifi');
 const cdp = require('./lib/cdp');
+const hotkey = require('./lib/hotkey');
 
 const SETTINGS_PATH = path.join(__dirname, 'settings.json');
 
@@ -340,4 +341,9 @@ const PORT = parseInt(process.env.PORT, 10) || 80;
 server.listen(PORT, () => {
   console.log(`OrbitControl running on http://0.0.0.0:${PORT}`);
   cdp.connect();
+  hotkey.start(() => {
+    toggleAdminPanel().catch((err) =>
+      console.warn('[hotkey] toggle failed:', err.message)
+    );
+  });
 });
