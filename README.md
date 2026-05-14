@@ -168,7 +168,10 @@ orbit-control/
 ├── settings.example.json     # Example config
 ├── lib/
 │   ├── cdp.js                # Chrome DevTools Protocol client
-│   └── system.js             # System commands (cross-platform)
+│   ├── hotkey.js             # evdev listener for Ctrl+Alt+A (kiosk ↔ admin toggle)
+│   ├── system.js             # System commands (cross-platform)
+│   ├── update.js             # Git-based self-update
+│   └── wifi.js               # NetworkManager (nmcli) integration
 ├── public/
 │   ├── index.html            # Control panel (left panel + centered preview)
 │   ├── css/style.css         # Dark theme UI
@@ -177,6 +180,7 @@ orbit-control/
 ├── scripts/
 │   ├── dev.js                # Cross-platform dev launcher
 │   └── setup.sh              # Linux/RPi automated setup
+├── chromium-autostart.sh     # Kiosk launcher (copied to kiosk user's home by setup.sh)
 └── orbit-control.service     # Systemd unit file
 ```
 
