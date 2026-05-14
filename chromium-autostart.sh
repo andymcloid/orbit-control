@@ -83,8 +83,11 @@ while true; do
       --window-position=0,0 \
       --noerrdialogs \
       --disable-infobars \
-      --disable-gpu \
-      --disable-software-rasterizer \
+      --ignore-gpu-blocklist \
+      --enable-gpu-rasterization \
+      --enable-zero-copy \
+      --use-gl=egl \
+      --enable-features=VaapiVideoDecoder,CanvasOopRasterization \
       --no-sandbox \
       --remote-debugging-port=9222 \
       '$KIOSK_URL'
