@@ -2,6 +2,7 @@
   const urlInput = document.getElementById('url-input');
   const btnNavigate = document.getElementById('btn-navigate');
   const btnReload = document.getElementById('btn-reload');
+  const btnClearCache = document.getElementById('btn-clear-cache');
   const btnRestart = document.getElementById('btn-restart');
   const btnReboot = document.getElementById('btn-reboot');
   const btnUpdate = document.getElementById('btn-update');
@@ -277,6 +278,13 @@
     showPreviewLoader();
     fetch('/api/reload', { method: 'POST' })
       .then(() => toast('Reloading page...'))
+      .catch(() => toast('Failed'));
+  });
+
+  btnClearCache.addEventListener('click', () => {
+    showPreviewLoader();
+    fetch('/api/clear-cache', { method: 'POST' })
+      .then(() => toast('Cache cleared, reloading...'))
       .catch(() => toast('Failed'));
   });
 

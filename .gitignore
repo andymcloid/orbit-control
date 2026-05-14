@@ -2,3 +2,4 @@ node_modules/
 settings.json
 *.log
 .orbit.local
+.superpowers/

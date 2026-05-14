@@ -89,7 +89,19 @@ app.post('/api/navigate', async (req, res) => {
 
 app.post('/api/reload', async (req, res) => {
   try {
-    await cdp.reload();
+    // Always hard-reload so the kiosk picks up new JS/CSS/images after a deploy
+    // without needing a cachebuster in the URL.
+    await cdp.reload(true);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/clear-cache', async (req, res) => {
+  try {
+    await cdp.clearBrowserCache();
+    await cdp.reload(true);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
