@@ -2,7 +2,7 @@
 
 Web-based kiosk controller for Raspberry Pi (and local development). Navigate URLs, zoom pages, live preview with monitor overlay, click interaction — all remotely via a clean dark-themed control panel.
 
-Built for [DietPi](https://dietpi.com/) with Chromium kiosk mode. Works on any Linux with Chromium, and includes a cross-platform dev mode for Windows/Mac/Linux.
+Built for Raspberry Pi OS Lite (Bookworm) with Chromium kiosk mode under [cage](https://github.com/cage-kiosk/cage). Works on any Linux with Chromium, and includes a cross-platform dev mode for Windows/Mac/Linux.
 
 ## Features
 
@@ -85,23 +85,40 @@ This will:
 
 Press `Ctrl+C` to stop everything.
 
-## Production Setup (Raspberry Pi / Linux)
+## Install on a Raspberry Pi
 
-```bash
-git clone https://github.com/andymcloid/orbit-control.git /opt/orbit-control
-cd /opt/orbit-control
-sudo npm run setup
-```
+**Target:** Raspberry Pi 4 or newer, Raspberry Pi OS Lite 64-bit (Bookworm).
 
-The setup script will:
-1. Check and install prerequisites (Node.js 18+, Chromium, unclutter-xfixes, xinit, curl)
-2. Run `npm install --production`
-3. Create `settings.json` from example if missing
-4. Generate and install a systemd service
-5. Enable and start the service
-6. Copy `chromium-autostart.sh` to the kiosk user's home
+1. Flash Raspberry Pi OS Lite 64-bit with the Raspberry Pi Imager. In imager settings, set:
+   - Hostname (e.g. `orbit`)
+   - Username (e.g. `pi` — any name works)
+   - WiFi (optional; you can set it up later via the control panel over Ethernet)
+   - Enable SSH
+2. SSH into the Pi.
+3. Clone and run setup:
+   ```bash
+   git clone https://github.com/andymcloid/orbit-control.git orbit-control
+   cd orbit-control
+   sudo bash scripts/setup.sh
+   sudo reboot
+   ```
+4. After reboot, the kiosk shows the URL configured in `settings.json` (defaults to a placeholder — set your real URL via the control panel at `http://<pi-ip>/`).
 
-The control panel will be available on port 80.
+### What setup.sh does
+
+- Installs `chromium-browser`, `cage` (Wayland kiosk compositor), `network-manager`, and Node.js 20.x
+- Configures tty1 autologin for your user
+- Writes `~/.bash_profile` to auto-launch the kiosk on tty1 login
+- Adds the kiosk user to the `input` group (so Ctrl+Alt+A hotkey works)
+- Installs and starts the `orbit-control` systemd service on port 80
+
+### Hotkey: Ctrl+Alt+A
+
+Plug in a USB keyboard, press **Ctrl+Alt+A** to toggle between the kiosk URL and the admin control panel. Useful when WiFi is misconfigured and you need to reach the panel without network access.
+
+### Display resolution
+
+Under cage, the physical display resolution is determined by HDMI EDID (whatever the screen reports as its preferred mode). The "Display Resolution" dropdown in the control panel sets chromium's reported viewport — useful for forcing a layout — but doesn't change the actual output mode.
 
 ## Configuration
 
@@ -112,7 +129,7 @@ The control panel will be available on port 80.
 | `PORT` | Server port | `80` (production), `3000` (dev) |
 | `ORBIT_DEV` | Dev mode flag (set automatically by `npm run dev`) | - |
 | `CHROME_PATH` | Path to Chrome/Chromium binary | Auto-detected |
-| `ORBIT_PORT` | Port for chromium-autostart.sh to connect to | `80` |
+| `ORBIT_PORT` | Port the kiosk launcher connects to for the initial URL | `80` |
 
 ### settings.json
 
@@ -160,8 +177,7 @@ orbit-control/
 ├── scripts/
 │   ├── dev.js                # Cross-platform dev launcher
 │   └── setup.sh              # Linux/RPi automated setup
-├── orbit-control.service     # Systemd unit file
-└── chromium-autostart.sh     # Reference kiosk autostart script
+└── orbit-control.service     # Systemd unit file
 ```
 
 ## How It Works
