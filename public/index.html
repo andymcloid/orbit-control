@@ -174,6 +174,18 @@
         <button class="btn btn-small" id="btn-advanced-cancel">Cancel</button>
       </div>
       <div class="advanced-body">
+        <label class="advanced-toggle">
+          <input type="checkbox" id="advanced-remote-debug">
+          <span>Allow remote debugging via <code>/cdp/*</code> bridge</span>
+        </label>
+        <div class="advanced-remote-info" id="advanced-remote-info" hidden>
+          Chromium's CDP is proxied through this server. When on, anyone reaching the panel can also drive the browser — leave off unless needed.
+          <ul>
+            <li><code>/cdp/json/version</code> — browser info</li>
+            <li><code>/cdp/json</code> — debuggable tabs (WS URLs rewritten to the bridge)</li>
+            <li><code>ws://&lt;host&gt;/cdp/devtools/page/&lt;id&gt;</code> — CDP socket per tab</li>
+          </ul>
+        </div>
         <div class="advanced-hint">One flag per line. Changes apply when the kiosk restarts. Removing core flags (e.g. <code>--ozone-platform=wayland</code>) can break the kiosk.</div>
         <textarea id="advanced-flags" spellcheck="false" autocomplete="off"></textarea>
         <div class="advanced-actions">

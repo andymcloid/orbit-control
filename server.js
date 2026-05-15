@@ -1,5 +1,5 @@
 const express = require('express');
-const { WebSocketServer } = require('ws');
+const { WebSocketServer, WebSocket } = require('ws');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -46,6 +46,7 @@ function readSettings() {
     name: s.name || 'Orbit',
     zoom: s.zoom != null ? s.zoom : 1,
     kioskFlags: s.kioskFlags != null ? s.kioskFlags : DEFAULT_KIOSK_FLAGS,
+    remoteDebugEnabled: s.remoteDebugEnabled === true,
   };
 }
 
@@ -69,7 +70,137 @@ async function toggleAdminPanel() {
 
 const app = express();
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server });
+// noServer mode: we handle the HTTP `upgrade` event ourselves so we can route
+// /cdp/devtools/* upgrades to the CDP bridge instead of letting WebSocketServer
+// swallow every upgrade.
+const wss = new WebSocketServer({ noServer: true });
+const cdpBridgeWss = new WebSocketServer({ noServer: true });
+
+server.on('upgrade', (req, socket, head) => {
+  const url = req.url || '';
+  if (url.startsWith('/cdp/devtools/')) {
+    if (!readSettings().remoteDebugEnabled) {
+      socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+    cdpBridgeWss.handleUpgrade(req, socket, head, (clientWs) => {
+      bridgeCdpWebSocket(url, clientWs);
+    });
+    return;
+  }
+  // Default: control-panel websocket.
+  wss.handleUpgrade(req, socket, head, (ws) => {
+    wss.emit('connection', ws, req);
+  });
+});
+
+// --- CDP bridge ----------------------------------------------------------
+// Lets a remote debugger (Claude/Puppeteer/chrome://inspect on another machine
+// or via the cloudflared tunnel) talk to the kiosk's chromium even though
+// chromium itself only listens on 127.0.0.1:9222 (modern chromium ignores
+// --remote-debugging-address). We proxy:
+//   GET  /cdp/json[/list]    → /json, rewriting webSocketDebuggerUrl + frontendUrl
+//   GET  /cdp/json/version   → /json/version, untouched
+//   WS   /cdp/devtools/...   → ws://127.0.0.1:9222/devtools/...
+// The whole bridge is gated by settings.remoteDebugEnabled — when off, every
+// endpoint returns 403, so debugging stays disabled by default.
+
+function rewriteTabsList(tabs, req) {
+  const host = req.headers.host || 'localhost';
+  const isHttps = req.headers['x-forwarded-proto'] === 'https' || req.protocol === 'https';
+  const wsProto = isHttps ? 'wss' : 'ws';
+  return tabs.map((t) => {
+    const copy = { ...t };
+    if (typeof copy.webSocketDebuggerUrl === 'string') {
+      copy.webSocketDebuggerUrl = copy.webSocketDebuggerUrl.replace(
+        /^ws:\/\/127\.0\.0\.1:9222\/devtools\//,
+        `${wsProto}://${host}/cdp/devtools/`
+      );
+    }
+    if (typeof copy.devtoolsFrontendUrl === 'string') {
+      // The frontend URL embeds `?ws=127.0.0.1:9222/devtools/...` as a query
+      // param; rewrite that host:port too.
+      copy.devtoolsFrontendUrl = copy.devtoolsFrontendUrl.replace(
+        /127\.0\.0\.1:9222\/devtools\//g,
+        `${host}/cdp/devtools/`
+      );
+    }
+    return copy;
+  });
+}
+
+function proxyChromiumJson(upstreamPath, req, res, transform) {
+  if (!readSettings().remoteDebugEnabled) {
+    return res.status(403).type('text/plain').send('Remote debugging disabled. Toggle "Allow remote debugging" in Advanced settings.');
+  }
+  const upstream = http.request({
+    host: '127.0.0.1',
+    port: 9222,
+    path: upstreamPath,
+    method: 'GET',
+    // Chromium's CDP rejects non-localhost Host headers unless --remote-allow-origins
+    // matches. Forcing Host: 127.0.0.1 dodges that entirely.
+    headers: { Host: '127.0.0.1' },
+  }, (upRes) => {
+    let body = '';
+    upRes.on('data', (c) => { body += c; });
+    upRes.on('end', () => {
+      try {
+        let data = JSON.parse(body);
+        if (transform) data = transform(data, req);
+        res.type('application/json').send(JSON.stringify(data, null, 2));
+      } catch (e) {
+        res.status(502).type('text/plain').send('CDP proxy parse error: ' + e.message);
+      }
+    });
+  });
+  upstream.on('error', (e) => res.status(502).type('text/plain').send('Upstream error: ' + e.message));
+  upstream.end();
+}
+
+function bridgeCdpWebSocket(reqUrl, clientWs) {
+  const chromiumPath = reqUrl.replace(/^\/cdp/, '');
+  let upstreamReady = false;
+  const pending = [];
+  const upstream = new WebSocket('ws://127.0.0.1:9222' + chromiumPath, {
+    headers: { Host: '127.0.0.1' },
+  });
+
+  upstream.on('open', () => {
+    upstreamReady = true;
+    while (pending.length) {
+      const m = pending.shift();
+      try { upstream.send(m.data, { binary: m.isBinary }); } catch {}
+    }
+  });
+
+  upstream.on('message', (data, isBinary) => {
+    try { clientWs.send(data, { binary: isBinary }); } catch {}
+  });
+
+  clientWs.on('message', (data, isBinary) => {
+    if (upstreamReady) {
+      try { upstream.send(data, { binary: isBinary }); } catch {}
+    } else {
+      pending.push({ data, isBinary });
+    }
+  });
+
+  const closeBoth = () => {
+    try { if (clientWs.readyState <= WebSocket.OPEN) clientWs.close(); } catch {}
+    try { if (upstream.readyState <= WebSocket.OPEN) upstream.close(); } catch {}
+  };
+  clientWs.on('close', closeBoth);
+  upstream.on('close', closeBoth);
+  clientWs.on('error', closeBoth);
+  upstream.on('error', closeBoth);
+}
+
+app.get('/cdp/json/version', (req, res) => proxyChromiumJson('/json/version', req, res));
+app.get(['/cdp/json', '/cdp/json/list'], (req, res) => proxyChromiumJson('/json', req, res, rewriteTabsList));
+
+// ------------------------------------------------------------------------
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));

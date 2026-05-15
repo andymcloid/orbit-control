@@ -48,6 +48,8 @@
   const advancedModal = document.getElementById('advanced-modal');
   const advancedFlags = document.getElementById('advanced-flags');
   const advancedMsg = document.getElementById('advanced-msg');
+  const advancedRemoteDebug = document.getElementById('advanced-remote-debug');
+  const advancedRemoteInfo = document.getElementById('advanced-remote-info');
   const btnAdvancedCancel = document.getElementById('btn-advanced-cancel');
   const btnAdvancedReset = document.getElementById('btn-advanced-reset');
   const btnAdvancedSave = document.getElementById('btn-advanced-save');
@@ -207,6 +209,16 @@
   let dragging = false;
   let currentButtons = 0;
   let lastMoveSent = 0;
+  // Multi-click tracker so a fast 2nd/3rd press at near-same coord is sent
+  // as clickCount=2/3 — chromium's renderer needs this to fire word/paragraph
+  // selection on dbl/triple click. (It does NOT auto-promote from CDP press
+  // timing the way real OS mouse events do.)
+  let lastPressTime = 0;
+  let lastPressX = 0;
+  let lastPressY = 0;
+  let currentClickCount = 1;
+  const MULTI_CLICK_MS = 400;
+  const MULTI_CLICK_PX = 5;
 
   function previewCoords(e) {
     const rect = previewImg.getBoundingClientRect();
@@ -235,8 +247,19 @@
     e.preventDefault();
     dragging = true;
     currentButtons |= buttonBit(e.button);
+    const now = performance.now();
+    const dx = Math.abs(e.clientX - lastPressX);
+    const dy = Math.abs(e.clientY - lastPressY);
+    if (now - lastPressTime < MULTI_CLICK_MS && dx < MULTI_CLICK_PX && dy < MULTI_CLICK_PX) {
+      currentClickCount = Math.min(currentClickCount + 1, 3);
+    } else {
+      currentClickCount = 1;
+    }
+    lastPressTime = now;
+    lastPressX = e.clientX;
+    lastPressY = e.clientY;
     const { x, y } = previewCoords(e);
-    wsSend({ type: 'mouse', action: 'press', x, y, button: buttonName(e.button) });
+    wsSend({ type: 'mouse', action: 'press', x, y, button: buttonName(e.button), clickCount: currentClickCount });
   });
 
   document.addEventListener('mousemove', (e) => {
@@ -253,7 +276,7 @@
     dragging = false;
     currentButtons &= ~buttonBit(e.button);
     const { x, y } = previewCoords(e);
-    wsSend({ type: 'mouse', action: 'release', x, y, button: buttonName(e.button) });
+    wsSend({ type: 'mouse', action: 'release', x, y, button: buttonName(e.button), clickCount: currentClickCount });
   });
 
   // Suppress the browser's native context menu on right-click so right-mouse
@@ -297,14 +320,25 @@
   });
 
   // -- Advanced (chromium flags) modal --
+  function syncRemoteDebugInfo() {
+    advancedRemoteInfo.hidden = !advancedRemoteDebug.checked;
+  }
+
   function openAdvancedModal() {
     advancedMsg.textContent = '';
     advancedMsg.className = 'advanced-msg';
     advancedFlags.value = 'Loading...';
     advancedFlags.disabled = true;
-    fetch('/api/kiosk-flags')
-      .then(r => r.text())
-      .then(text => { advancedFlags.value = text; advancedFlags.disabled = false; })
+    Promise.all([
+      fetch('/api/kiosk-flags').then(r => r.text()),
+      fetch('/api/settings').then(r => r.json()),
+    ])
+      .then(([flags, settings]) => {
+        advancedFlags.value = flags;
+        advancedFlags.disabled = false;
+        advancedRemoteDebug.checked = settings.remoteDebugEnabled === true;
+        syncRemoteDebugInfo();
+      })
       .catch(() => { advancedFlags.value = ''; advancedFlags.disabled = false; });
     advancedModal.hidden = false;
   }
@@ -313,6 +347,7 @@
 
   btnAdvanced.addEventListener('click', openAdvancedModal);
   btnAdvancedCancel.addEventListener('click', closeAdvancedModal);
+  advancedRemoteDebug.addEventListener('change', syncRemoteDebugInfo);
 
   btnAdvancedReset.addEventListener('click', () => {
     fetch('/api/kiosk-flags/default')
@@ -327,13 +362,14 @@
 
   btnAdvancedSave.addEventListener('click', () => {
     const flags = advancedFlags.value;
+    const remoteDebugEnabled = advancedRemoteDebug.checked;
     btnAdvancedSave.disabled = true;
     advancedMsg.textContent = 'Saving...';
     advancedMsg.className = 'advanced-msg';
     fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kioskFlags: flags }),
+      body: JSON.stringify({ kioskFlags: flags, remoteDebugEnabled }),
     })
       .then(r => r.json())
       .then(() => {

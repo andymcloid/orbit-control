@@ -455,7 +455,8 @@ body.drawer-open .trigger-btn {
   line-height: 1.5;
 }
 
-.advanced-hint code {
+.advanced-hint code,
+.advanced-remote-info code {
   font-family: 'SF Mono', 'Consolas', monospace;
   background: var(--bg);
   padding: 1px 5px;
@@ -463,6 +464,43 @@ body.drawer-open .trigger-btn {
   font-size: 11px;
   color: var(--text);
 }
+
+.advanced-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  padding: 4px 0;
+  user-select: none;
+}
+
+.advanced-toggle input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--accent);
+  flex-shrink: 0;
+}
+
+.advanced-remote-info {
+  border-left: 2px solid var(--accent);
+  padding: 8px 12px;
+  margin-left: 2px;
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.6;
+  background: rgba(108, 140, 255, 0.04);
+  border-radius: 0 4px 4px 0;
+}
+
+.advanced-remote-info ul {
+  margin: 6px 0 0 16px;
+  padding: 0;
+}
+
+.advanced-remote-info li { margin: 2px 0; }
 
 #advanced-flags {
   width: 100%;
