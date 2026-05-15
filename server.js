@@ -513,11 +513,14 @@ wss.on('connection', (ws) => {
   });
 });
 
-// Forward screenshot frames to control clients that want preview
+// Forward screenshot frames to control clients that want preview. `data` is
+// the raw JPEG Buffer from CDP — we send it as a binary WS frame so the
+// browser can build a Blob directly, no base64 + JSON.stringify per frame.
 cdp.setOnScreenshotFrame((data) => {
-  const msg = JSON.stringify({ type: 'frame', data });
   for (const ws of controlClients) {
-    if (ws._wantPreview && ws.readyState === 1) ws.send(msg);
+    if (ws._wantPreview && ws.readyState === 1) {
+      try { ws.send(data, { binary: true }); } catch {}
+    }
   }
 });
 

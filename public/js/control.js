@@ -88,9 +88,26 @@
   }
 
   // -- WebSocket --
+  // Cap how many object URLs we keep alive — each frame creates one. Revoking
+  // the oldest after a few frames is enough; the browser has long since
+  // consumed it by then and the GC otherwise leaks blob memory.
+  const objectUrlRing = [];
+  function setPreviewBlob(blob) {
+    const url = URL.createObjectURL(blob);
+    previewImg.src = url;
+    if (previewImg.style.display !== 'block') previewImg.style.display = 'block';
+    if (previewPlaceholder.style.display !== 'none') previewPlaceholder.style.display = 'none';
+    objectUrlRing.push(url);
+    while (objectUrlRing.length > 3) URL.revokeObjectURL(objectUrlRing.shift());
+  }
+
   function connect() {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     ws = new WebSocket(proto + '//' + location.host);
+    // Binary frames carry raw JPEG bytes from Page.startScreencast — handled
+    // as ArrayBuffer rather than the default Blob so we can hand it straight
+    // to URL.createObjectURL without an intermediate copy.
+    ws.binaryType = 'arraybuffer';
 
     ws.onopen = () => {
       ws.send(JSON.stringify({ type: 'preview-start', fps: readLocalFps() }));
@@ -111,16 +128,17 @@
     };
 
     ws.onmessage = (e) => {
+      // Binary message = JPEG screencast frame (ArrayBuffer, see binaryType).
+      if (typeof e.data !== 'string') {
+        if (waitingForReconnect) return;
+        setPreviewBlob(new Blob([e.data], { type: 'image/jpeg' }));
+        return;
+      }
       let msg;
       try { msg = JSON.parse(e.data); } catch { return; }
 
       if (msg.type === 'status') {
         updateStatus(msg);
-      } else if (msg.type === 'frame') {
-        if (waitingForReconnect) return;
-        previewImg.src = 'data:image/jpeg;base64,' + msg.data;
-        previewImg.style.display = 'block';
-        previewPlaceholder.style.display = 'none';
       } else if (msg.type === 'update-output') {
         appendUpdateLine(msg.stream === 'stderr' ? 'err' : 'std', msg.line);
       } else if (msg.type === 'update-step') {
