@@ -60,10 +60,12 @@ body {
 }
 
 .preview-img {
-  max-width: 100vw;
-  max-height: 100vh;
-  width: auto;
-  height: auto;
+  /* Fill the parent (.preview-stage = full viewport) and let object-fit do
+     aspect-preserving letterboxing. width/height:auto + max-width caps the
+     img to its natural pixel size, which is exactly what we don't want when
+     the source is smaller than the viewport. */
+  width: 100%;
+  height: 100%;
   object-fit: contain;
   cursor: crosshair;
   user-select: none;
