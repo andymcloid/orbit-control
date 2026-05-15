@@ -523,11 +523,15 @@ wss.on('connection', (ws) => {
       updatePreview();
     } else if (msg.type === 'mouse') {
       // Forward raw pointer events from the preview pane to chromium via CDP.
-      // Errors are swallowed because the WS message is fire-and-forget — if
-      // chromium is briefly disconnected the operator just sees the next
-      // click do nothing rather than a crash dump.
-      const { action, x, y } = msg;
-      if (typeof x !== 'number' || typeof y !== 'number') return;
+      // Coords arrive as normalized 0..1 (the preview video can be at any
+      // resolution); scale here by the kiosk's actual viewport size so CDP
+      // gets coordinates in the page's CSS pixel space. Wheel deltas pass
+      // through as-is since they're already in CSS pixels.
+      const { action } = msg;
+      if (typeof msg.x !== 'number' || typeof msg.y !== 'number') return;
+      const res = readSettings().resolution || { width: 1920, height: 1080 };
+      const x = Math.max(0, Math.min(res.width,  msg.x * res.width));
+      const y = Math.max(0, Math.min(res.height, msg.y * res.height));
       cdp.mouseEvent(action, x, y, {
         button: msg.button,
         buttons: msg.buttons,

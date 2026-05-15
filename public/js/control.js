@@ -342,14 +342,16 @@
   const MULTI_CLICK_MS = 400;
   const MULTI_CLICK_PX = 5;
 
+  // Send mouse coords as normalized 0..1 instead of pixels. The preview
+  // stream runs at 540p (or whatever lib/cdp.js picks for the screencast)
+  // but the actual kiosk renders at settings.resolution — the server scales
+  // these floats by the kiosk's real width/height before dispatching to CDP.
+  // Means preview resolution can change without breaking click coordinates.
   function previewCoords(e) {
     const rect = previewVideo.getBoundingClientRect();
-    const natW = previewVideo.videoWidth || rect.width;
-    const natH = previewVideo.videoHeight || rect.height;
-    const scaleX = natW / rect.width;
-    const scaleY = natH / rect.height;
-    const x = Math.max(0, Math.min(natW, (e.clientX - rect.left) * scaleX));
-    const y = Math.max(0, Math.min(natH, (e.clientY - rect.top)  * scaleY));
+    if (rect.width === 0 || rect.height === 0) return { x: 0, y: 0 };
+    const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const y = Math.max(0, Math.min(1, (e.clientY - rect.top)  / rect.height));
     return { x, y };
   }
 
