@@ -11,17 +11,42 @@ const hotkey = require('./lib/hotkey');
 
 const SETTINGS_PATH = path.join(__dirname, 'settings.json');
 
+// Default chromium command-line flags for the kiosk. Exposed via /api/kiosk-flags
+// so the Advanced settings modal can show/edit them, and chromium-autostart.sh
+// reads them from the same endpoint so flag changes propagate without editing
+// any shell script.
+//   --use-gl / --ignore-gpu-blocklist / --enable-zero-copy / CanvasOopRasterization
+//   were removed because they conflict with the Pi chromium wrapper's
+//   --use-angle=gles and triggered GPU re-init loops that broke nested
+//   overflow:auto scrolling.
+//   --window-size is appended dynamically from the saved resolution, not stored
+//   here.
+const DEFAULT_KIOSK_FLAGS = [
+  '--ozone-platform=wayland',
+  '--enable-features=UseOzonePlatform,VaapiVideoDecoder',
+  '--kiosk',
+  '--start-fullscreen',
+  '--noerrdialogs',
+  '--disable-infobars',
+  '--disable-popup-blocking',
+  '--no-sandbox',
+  '--remote-debugging-port=9222',
+].join('\n');
+
 function readSettings() {
+  let s = {};
   try {
-    return JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8'));
-  } catch {
-    return {
-      url: 'https://example.com',
-      resolution: { width: 1920, height: 1080 },
-      hideCursorDelay: 10,
-      name: 'Orbit',
-    };
-  }
+    s = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8'));
+  } catch {}
+  return {
+    url: s.url || 'https://example.com',
+    resolution: s.resolution || { width: 1920, height: 1080 },
+    hideCursorDelay: s.hideCursorDelay != null ? s.hideCursorDelay : 10,
+    name: s.name || 'Orbit',
+    zoom: s.zoom != null ? s.zoom : 1,
+    previewFps: s.previewFps || 1,
+    kioskFlags: s.kioskFlags != null ? s.kioskFlags : DEFAULT_KIOSK_FLAGS,
+  };
 }
 
 function writeSettings(settings) {
@@ -55,6 +80,17 @@ app.get('/api/settings', (req, res) => {
   res.json(readSettings());
 });
 
+// Plain-text endpoints used by both the admin UI's Advanced modal and the
+// kiosk autostart shell script. text/plain (not JSON) so bash can pipe the
+// body directly into `xargs` / a flag array without JSON parsing.
+app.get('/api/kiosk-flags', (req, res) => {
+  res.type('text/plain').send(readSettings().kioskFlags);
+});
+
+app.get('/api/kiosk-flags/default', (req, res) => {
+  res.type('text/plain').send(DEFAULT_KIOSK_FLAGS);
+});
+
 app.post('/api/settings', (req, res) => {
   const current = readSettings();
   const updated = { ...current, ...req.body };
@@ -62,6 +98,7 @@ app.post('/api/settings', (req, res) => {
     updated.resolution = { ...current.resolution, ...req.body.resolution };
   }
   writeSettings(updated);
+  if (req.body.previewFps != null) cdp.setPreviewFps(req.body.previewFps);
   res.json(updated);
 });
 
@@ -340,6 +377,8 @@ cdp.setOnConnectChange(async (connected) => {
 const PORT = parseInt(process.env.PORT, 10) || 80;
 server.listen(PORT, () => {
   console.log(`OrbitControl running on http://0.0.0.0:${PORT}`);
+  const initial = readSettings();
+  if (initial.previewFps) cdp.setPreviewFps(initial.previewFps);
   cdp.connect();
   hotkey.start(() => {
     toggleAdminPanel().catch((err) =>

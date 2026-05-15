@@ -134,6 +134,11 @@ ExecStart=$NODE_BIN $INSTALL_DIR/server.js
 Restart=always
 RestartSec=3
 Environment=NODE_ENV=production
+# hotkey.js opens fs.createReadStream on every /dev/input/event* device — those
+# block one libuv worker each, and the default pool size is 4. With more than
+# ~3 input devices, express.static's fs.stat (and any other fs I/O) starves
+# the pool, hanging all HTTP requests. Bump well above the device count.
+Environment=UV_THREADPOOL_SIZE=64
 
 [Install]
 WantedBy=multi-user.target

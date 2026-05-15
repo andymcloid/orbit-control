@@ -43,26 +43,41 @@ read_kiosk_args() {
   KIOSK_H="$h"
 }
 
+# Fetch chromium flag list from the server (one flag per line). Falls back to
+# the server's /default endpoint if user-edited flags were somehow blanked,
+# and to a tiny hardcoded set if the server is unreachable.
+read_kiosk_flags() {
+  local out
+  out=$(curl -sf "http://localhost:${OC_PORT}/api/kiosk-flags" 2>/dev/null)
+  if [ -z "$out" ]; then
+    out=$(curl -sf "http://localhost:${OC_PORT}/api/kiosk-flags/default" 2>/dev/null)
+  fi
+  if [ -z "$out" ]; then
+    out=$'--ozone-platform=wayland\n--enable-features=UseOzonePlatform,VaapiVideoDecoder\n--kiosk\n--start-fullscreen\n--noerrdialogs\n--disable-infobars\n--disable-popup-blocking\n--no-sandbox\n--remote-debugging-port=9222'
+  fi
+  # Split on newlines into the global array CHROMIUM_FLAGS, skipping blanks
+  # and comment lines (any line starting with #).
+  CHROMIUM_FLAGS=()
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    case "$line" in
+      \#*) continue ;;
+    esac
+    CHROMIUM_FLAGS+=("$line")
+  done <<< "$out"
+}
+
 # Kiosk loop — if chromium/cage exits/crashes, it restarts automatically
 while true; do
   read_kiosk_args
-  echo "[$(date)] Starting kiosk: ${KIOSK_W}x${KIOSK_H} URL=$KIOSK_URL" >> "$LOG"
+  read_kiosk_flags
+  # --window-size is derived from the saved resolution rather than stored as a
+  # flag, so the resolution selector in the UI keeps working as a separate
+  # control.
+  CHROMIUM_FLAGS+=("--window-size=${KIOSK_W},${KIOSK_H}")
+  echo "[$(date)] Starting kiosk: ${KIOSK_W}x${KIOSK_H} URL=$KIOSK_URL flags=${#CHROMIUM_FLAGS[@]}" >> "$LOG"
 
-  cage -s -- chromium \
-    --ozone-platform=wayland \
-    --enable-features=UseOzonePlatform,VaapiVideoDecoder,CanvasOopRasterization \
-    --kiosk \
-    --start-fullscreen \
-    --window-size=${KIOSK_W},${KIOSK_H} \
-    --noerrdialogs \
-    --disable-infobars \
-    --ignore-gpu-blocklist \
-    --enable-gpu-rasterization \
-    --enable-zero-copy \
-    --use-gl=egl \
-    --no-sandbox \
-    --remote-debugging-port=9222 \
-    "$KIOSK_URL" >> "$LOG" 2>&1
+  cage -s -- chromium "${CHROMIUM_FLAGS[@]}" "$KIOSK_URL" >> "$LOG" 2>&1
 
   echo "[$(date)] cage/chromium exited, restarting in 3s..." >> "$LOG"
   sleep 3

@@ -10,13 +10,17 @@
   const zoomSlider = document.getElementById('zoom-slider');
   const zoomValue = document.getElementById('zoom-value');
   const btnZoomReset = document.getElementById('btn-zoom-reset');
+  const fpsPreset = document.getElementById('fps-preset');
   const statusDot = document.getElementById('status-dot');
   const statusText = document.getElementById('status-text');
   const sysInfo = document.getElementById('sys-info');
   const toastEl = document.getElementById('toast');
   const previewImg = document.getElementById('preview-img');
   const previewPlaceholder = document.getElementById('preview-placeholder');
-  const previewLed = document.getElementById('preview-led');
+  const drawer = document.getElementById('drawer');
+  const drawerBackdrop = document.getElementById('drawer-backdrop');
+  const triggerBtn = document.getElementById('trigger-btn');
+  const drawerClose = document.getElementById('drawer-close');
   const displayPreset = document.getElementById('display-preset');
   const displayCustom = document.getElementById('display-custom');
   const displayW = document.getElementById('display-w');
@@ -40,6 +44,13 @@
   const btnWifiConnectSubmit = document.getElementById('btn-wifi-connect-submit');
   const btnWifiConnectCancel = document.getElementById('btn-wifi-connect-cancel');
   const wifiConnectMsg = document.getElementById('wifi-connect-msg');
+  const btnAdvanced = document.getElementById('btn-advanced');
+  const advancedModal = document.getElementById('advanced-modal');
+  const advancedFlags = document.getElementById('advanced-flags');
+  const advancedMsg = document.getElementById('advanced-msg');
+  const btnAdvancedCancel = document.getElementById('btn-advanced-cancel');
+  const btnAdvancedReset = document.getElementById('btn-advanced-reset');
+  const btnAdvancedSave = document.getElementById('btn-advanced-save');
   const updateModal = document.getElementById('update-modal');
   const updateTitle = document.getElementById('update-title');
   const updateStepText = document.getElementById('update-step-text');
@@ -49,7 +60,7 @@
   let ws;
   let toastTimer;
   let zoomTimer;
-  let previewOn = true;
+  let backdropHideTimer;
   let updating = false;
   // State: null = normal, 'wait-disconnect' = action fired, waiting for browser to go offline,
   //        'wait-reconnect' = browser went offline, waiting for it to come back
@@ -68,9 +79,7 @@
     ws = new WebSocket(proto + '//' + location.host);
 
     ws.onopen = () => {
-      if (previewOn) {
-        ws.send(JSON.stringify({ type: 'preview-start' }));
-      }
+      ws.send(JSON.stringify({ type: 'preview-start' }));
       // If we were mid-update when the connection dropped, the server has now
       // come back up with the new code → close the modal.
       if (updating) {
@@ -147,21 +156,35 @@
 
   function showPreviewLoader(awaitReconnect) {
     previewImg.style.display = 'none';
-    if (previewOn) previewPlaceholder.style.display = 'flex';
+    previewPlaceholder.style.display = 'flex';
     if (awaitReconnect) waitingForReconnect = 'wait-disconnect';
   }
 
-  // -- Preview LED toggle --
-  previewLed.addEventListener('click', () => {
-    previewOn = !previewOn;
-    previewLed.classList.toggle('active', previewOn);
-    wsSend({ type: previewOn ? 'preview-start' : 'preview-stop' });
-    if (previewOn) {
-      previewPlaceholder.style.display = 'flex';
-    } else {
-      previewImg.style.display = 'none';
-      previewPlaceholder.style.display = 'none';
-    }
+  // -- Drawer --
+  function openDrawer() {
+    clearTimeout(backdropHideTimer);
+    drawerBackdrop.hidden = false;
+    // Force layout so the opacity transition fires (display: none → block then add .show).
+    drawerBackdrop.offsetHeight;
+    drawerBackdrop.classList.add('show');
+    drawer.classList.add('open');
+    drawer.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('drawer-open');
+  }
+
+  function closeDrawer() {
+    drawer.classList.remove('open');
+    drawer.setAttribute('aria-hidden', 'true');
+    drawerBackdrop.classList.remove('show');
+    document.body.classList.remove('drawer-open');
+    backdropHideTimer = setTimeout(() => { drawerBackdrop.hidden = true; }, 240);
+  }
+
+  triggerBtn.addEventListener('click', openDrawer);
+  drawerClose.addEventListener('click', closeDrawer);
+  drawerBackdrop.addEventListener('click', closeDrawer);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && drawer.classList.contains('open')) closeDrawer();
   });
 
   // -- Click on preview to interact --
@@ -188,9 +211,80 @@
         const z = Math.round((s.zoom || 1) * 100);
         zoomSlider.value = z;
         zoomValue.textContent = z + '%';
+        if (s.previewFps) fpsPreset.value = String(s.previewFps);
       })
       .catch(() => {});
   }
+
+  // -- Preview FPS --
+  fpsPreset.addEventListener('change', () => {
+    const fps = parseInt(fpsPreset.value, 10) || 1;
+    fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ previewFps: fps }),
+    })
+      .then(r => r.json())
+      .then(() => toast('Preview ' + fps + ' fps'))
+      .catch(() => toast('Failed'));
+  });
+
+  // -- Advanced (chromium flags) modal --
+  function openAdvancedModal() {
+    advancedMsg.textContent = '';
+    advancedMsg.className = 'advanced-msg';
+    advancedFlags.value = 'Loading...';
+    advancedFlags.disabled = true;
+    fetch('/api/kiosk-flags')
+      .then(r => r.text())
+      .then(text => { advancedFlags.value = text; advancedFlags.disabled = false; })
+      .catch(() => { advancedFlags.value = ''; advancedFlags.disabled = false; });
+    advancedModal.hidden = false;
+  }
+
+  function closeAdvancedModal() { advancedModal.hidden = true; }
+
+  btnAdvanced.addEventListener('click', openAdvancedModal);
+  btnAdvancedCancel.addEventListener('click', closeAdvancedModal);
+
+  btnAdvancedReset.addEventListener('click', () => {
+    fetch('/api/kiosk-flags/default')
+      .then(r => r.text())
+      .then(text => {
+        advancedFlags.value = text;
+        advancedMsg.textContent = 'Loaded defaults. Click Save & restart to apply.';
+        advancedMsg.className = 'advanced-msg ok';
+      })
+      .catch(() => { advancedMsg.textContent = 'Could not load defaults.'; advancedMsg.className = 'advanced-msg err'; });
+  });
+
+  btnAdvancedSave.addEventListener('click', () => {
+    const flags = advancedFlags.value;
+    btnAdvancedSave.disabled = true;
+    advancedMsg.textContent = 'Saving...';
+    advancedMsg.className = 'advanced-msg';
+    fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kioskFlags: flags }),
+    })
+      .then(r => r.json())
+      .then(() => {
+        advancedMsg.textContent = 'Saved. Restarting kiosk...';
+        advancedMsg.className = 'advanced-msg ok';
+        showPreviewLoader(true);
+        return fetch('/api/restart-kiosk', { method: 'POST' });
+      })
+      .then(() => {
+        toast('Kiosk restarting with new flags...');
+        setTimeout(closeAdvancedModal, 1200);
+      })
+      .catch(() => {
+        advancedMsg.textContent = 'Save failed.';
+        advancedMsg.className = 'advanced-msg err';
+      })
+      .finally(() => { btnAdvancedSave.disabled = false; });
+  });
 
   function loadSystemInfo() {
     fetch('/api/system-info')

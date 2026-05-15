@@ -8,10 +8,34 @@
 </head>
 <body>
 
-  <!-- Left panel -->
-  <nav class="panel">
-    <div class="panel-header">
-      <h1><span>Orbit</span>Control</h1>
+  <!-- Edge-to-edge preview stage -->
+  <main class="preview-stage">
+    <img id="preview-img" class="preview-img" alt="Kiosk preview">
+    <div class="preview-placeholder" id="preview-placeholder"><div class="spinner"></div></div>
+  </main>
+
+  <!-- Floating trigger button (top-left) -->
+  <button class="trigger-btn" id="trigger-btn" aria-label="Open settings" title="Settings">
+    <span class="trigger-orbit"></span>
+  </button>
+
+  <!-- Status badge (bottom-right) -->
+  <div class="status-badge" id="status-badge">
+    <div class="status-dot" id="status-dot"></div>
+    <span id="status-text">Browser offline</span>
+  </div>
+
+  <!-- Drawer backdrop -->
+  <div class="drawer-backdrop" id="drawer-backdrop" hidden></div>
+
+  <!-- Drawer (slides in from left) -->
+  <aside class="drawer" id="drawer" aria-hidden="true">
+    <div class="drawer-header">
+      <h1>
+        <span class="drawer-mark" aria-hidden="true"></span>
+        <span class="drawer-brand"><span>Orbit</span>Control</span>
+      </h1>
+      <button class="drawer-close" id="drawer-close" aria-label="Close settings">✕</button>
     </div>
 
     <div class="panel-section">
@@ -29,6 +53,26 @@
         <span class="zoom-value" id="zoom-value">100%</span>
         <button class="btn btn-small" id="btn-zoom-reset">Reset</button>
       </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-label">Preview FPS</div>
+      <div class="fps-row">
+        <select id="fps-preset">
+          <option value="1">1 fps (minimal CPU)</option>
+          <option value="2">2 fps</option>
+          <option value="5">5 fps</option>
+          <option value="10">10 fps</option>
+          <option value="15">15 fps</option>
+          <option value="20">20 fps</option>
+          <option value="30">30 fps (max — Pi may struggle)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-label">Advanced</div>
+      <button class="btn" id="btn-advanced">Chromium flags...</button>
     </div>
 
     <div class="panel-section">
@@ -80,21 +124,7 @@
         <tr><td>Loading...</td><td></td></tr>
       </table>
     </div>
-  </nav>
-
-  <!-- Centered preview -->
-  <main class="stage">
-    <div class="preview-monitor">
-      <img class="monitor-frame" src="/img/preview.png" alt="" draggable="false">
-      <img id="preview-img" class="preview-screen" alt="Kiosk preview">
-      <div class="preview-placeholder" id="preview-placeholder"><div class="spinner"></div></div>
-      <div class="preview-led active" id="preview-led" title="Toggle preview"></div>
-      <div class="status-badge" id="status-badge">
-        <div class="status-dot" id="status-dot"></div>
-        <span id="status-text">Browser offline</span>
-      </div>
-    </div>
-  </main>
+  </aside>
 
   <div class="toast" id="toast"></div>
 
@@ -133,6 +163,24 @@
         </label>
         <button class="btn btn-primary" id="btn-wifi-connect-submit">Connect</button>
         <div class="wifi-connect-msg" id="wifi-connect-msg"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="update-modal" id="advanced-modal" hidden>
+    <div class="update-modal-inner update-modal-small">
+      <div class="update-modal-header">
+        <h2>Chromium Flags</h2>
+        <button class="btn btn-small" id="btn-advanced-cancel">Cancel</button>
+      </div>
+      <div class="advanced-body">
+        <div class="advanced-hint">One flag per line. Changes apply when the kiosk restarts. Removing core flags (e.g. <code>--ozone-platform=wayland</code>) can break the kiosk.</div>
+        <textarea id="advanced-flags" spellcheck="false" autocomplete="off"></textarea>
+        <div class="advanced-actions">
+          <button class="btn btn-small" id="btn-advanced-reset">Restore defaults</button>
+          <button class="btn btn-primary" id="btn-advanced-save">Save &amp; restart kiosk</button>
+        </div>
+        <div class="advanced-msg" id="advanced-msg"></div>
       </div>
     </div>
   </div>
