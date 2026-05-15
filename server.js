@@ -9,6 +9,7 @@ const update = require('./lib/update');
 const wifi = require('./lib/wifi');
 const cdp = require('./lib/cdp');
 const hotkey = require('./lib/hotkey');
+const encoder = require('./lib/encoder');
 
 const SETTINGS_PATH = path.join(__dirname, 'settings.json');
 
@@ -469,6 +470,34 @@ wss.on('connection', (ws) => {
   controlClients.add(ws);
   ws._wantPreview = false;
   ws._previewFps = 1;
+  // Per-WS encoder listener — created on preview-start, removed on stop/close.
+  // The encoder reference-counts its subscribers, so the ffmpeg subprocess
+  // only runs while at least one panel is watching.
+  ws._encListener = null;
+
+  function attachEncoder() {
+    if (ws._encListener) return;
+    ws._encListener = {
+      onInit: (initBuf) => {
+        if (ws.readyState !== 1) return;
+        // Signal a fresh MSE source so the client knows the next binary
+        // frame is the init segment, not a media fragment.
+        try { ws.send(JSON.stringify({ type: 'video-init' })); } catch {}
+        try { ws.send(initBuf, { binary: true }); } catch {}
+      },
+      onChunk: (chunk) => {
+        if (ws.readyState !== 1) return;
+        try { ws.send(chunk, { binary: true }); } catch {}
+      },
+    };
+    encoder.subscribe(ws._encListener);
+  }
+
+  function detachEncoder() {
+    if (!ws._encListener) return;
+    encoder.unsubscribe(ws._encListener);
+    ws._encListener = null;
+  }
 
   ws.send(JSON.stringify({
     type: 'status',
@@ -483,9 +512,11 @@ wss.on('connection', (ws) => {
     if (msg.type === 'preview-start') {
       ws._wantPreview = true;
       if (msg.fps) ws._previewFps = Math.max(1, Math.min(30, parseInt(msg.fps, 10) || 1));
+      attachEncoder();
       updatePreview();
     } else if (msg.type === 'preview-stop') {
       ws._wantPreview = false;
+      detachEncoder();
       updatePreview();
     } else if (msg.type === 'preview-fps') {
       ws._previewFps = Math.max(1, Math.min(30, parseInt(msg.fps, 10) || 1));
@@ -509,19 +540,16 @@ wss.on('connection', (ws) => {
 
   ws.on('close', () => {
     controlClients.delete(ws);
+    detachEncoder();
     updatePreview();
   });
 });
 
-// Forward screenshot frames to control clients that want preview. `data` is
-// the raw JPEG Buffer from CDP — we send it as a binary WS frame so the
-// browser can build a Blob directly, no base64 + JSON.stringify per frame.
-cdp.setOnScreenshotFrame((data) => {
-  for (const ws of controlClients) {
-    if (ws._wantPreview && ws.readyState === 1) {
-      try { ws.send(data, { binary: true }); } catch {}
-    }
-  }
+// Pipe CDP screencast JPEGs into the H264 encoder. Per-client subscription
+// happens at preview-start/stop time below — the encoder only runs while at
+// least one subscriber is listening.
+cdp.setOnScreenshotFrame((jpegBuf) => {
+  encoder.writeFrame(jpegBuf);
 });
 
 // --- CDP connection state ---

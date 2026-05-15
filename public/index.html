@@ -10,7 +10,9 @@
 
   <!-- Edge-to-edge preview stage -->
   <main class="preview-stage">
-    <img id="preview-img" class="preview-img" alt="Kiosk preview" draggable="false">
+    <!-- H264 stream fed via MediaSource — autoplay + muted so the browser
+         permits playback without a user gesture; playsinline for iOS. -->
+    <video id="preview-video" class="preview-video" autoplay muted playsinline></video>
     <div class="preview-placeholder" id="preview-placeholder"><div class="spinner"></div></div>
   </main>
 

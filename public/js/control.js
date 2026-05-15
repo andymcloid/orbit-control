@@ -15,7 +15,7 @@
   const statusText = document.getElementById('status-text');
   const sysInfo = document.getElementById('sys-info');
   const toastEl = document.getElementById('toast');
-  const previewImg = document.getElementById('preview-img');
+  const previewVideo = document.getElementById('preview-video');
   const previewPlaceholder = document.getElementById('preview-placeholder');
   const drawer = document.getElementById('drawer');
   const drawerBackdrop = document.getElementById('drawer-backdrop');
@@ -87,19 +87,107 @@
     toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2500);
   }
 
-  // -- WebSocket --
-  // Cap how many object URLs we keep alive — each frame creates one. Revoking
-  // the oldest after a few frames is enough; the browser has long since
-  // consumed it by then and the GC otherwise leaks blob memory.
-  const objectUrlRing = [];
-  function setPreviewBlob(blob) {
-    const url = URL.createObjectURL(blob);
-    previewImg.src = url;
-    if (previewImg.style.display !== 'block') previewImg.style.display = 'block';
+  // -- MSE preview pipeline --
+  // The server sends `{type:'video-init'}` (text) immediately before the init
+  // segment (binary), then a stream of media fragments (binary). We keep a
+  // single MediaSource per WS connection; on reconnect or new init we tear
+  // it down and rebuild so we don't get appendBuffer errors from a partial
+  // stream. Drops old fragments aggressively to keep buffered range short —
+  // a kiosk preview should be live, not seekable history.
+
+  let mediaSource = null;
+  let sourceBuffer = null;
+  let mseUrl = null;
+  let mseQueue = [];
+  let mseAppending = false;
+  let mseExpectInit = false;
+
+  function showPreview() {
+    if (previewVideo.style.display !== 'block') previewVideo.style.display = 'block';
     if (previewPlaceholder.style.display !== 'none') previewPlaceholder.style.display = 'none';
-    objectUrlRing.push(url);
-    while (objectUrlRing.length > 3) URL.revokeObjectURL(objectUrlRing.shift());
   }
+
+  function teardownMse() {
+    try { if (sourceBuffer) mediaSource && mediaSource.removeSourceBuffer(sourceBuffer); } catch {}
+    try { if (mediaSource && mediaSource.readyState === 'open') mediaSource.endOfStream(); } catch {}
+    sourceBuffer = null;
+    mediaSource = null;
+    mseQueue = [];
+    mseAppending = false;
+    if (mseUrl) { try { URL.revokeObjectURL(mseUrl); } catch {} mseUrl = null; }
+  }
+
+  function setupMse() {
+    teardownMse();
+    mediaSource = new MediaSource();
+    mseUrl = URL.createObjectURL(mediaSource);
+    previewVideo.src = mseUrl;
+    mediaSource.addEventListener('sourceopen', () => {
+      try {
+        // Baseline H.264 profile (level 3.1 = up to 1920x1080@30) — matches
+        // what lib/encoder.js asks ffmpeg to produce.
+        sourceBuffer = mediaSource.addSourceBuffer('video/mp4; codecs="avc1.42E01F"');
+        sourceBuffer.mode = 'sequence';
+        sourceBuffer.addEventListener('updateend', drainMse);
+        sourceBuffer.addEventListener('error', () => {
+          // Most "errors" here are decode hiccups after a network blip — easiest
+          // recovery is to rebuild the MediaSource on the next init segment.
+          mseExpectInit = true;
+        });
+        drainMse();
+      } catch (err) {
+        console.warn('MSE sourceopen failed:', err);
+      }
+    });
+  }
+
+  function drainMse() {
+    if (!sourceBuffer || sourceBuffer.updating) return;
+    // Keep buffered window short (<= 3s) so we don't drift away from live.
+    try {
+      const buffered = sourceBuffer.buffered;
+      if (buffered.length) {
+        const end = buffered.end(buffered.length - 1);
+        if (end - buffered.start(0) > 3 && previewVideo.currentTime > buffered.start(0) + 2) {
+          sourceBuffer.remove(buffered.start(0), previewVideo.currentTime - 1);
+          return; // drain will be called again on updateend
+        }
+      }
+    } catch {}
+    if (mseQueue.length === 0) return;
+    const next = mseQueue.shift();
+    mseAppending = true;
+    try {
+      sourceBuffer.appendBuffer(next);
+    } catch (err) {
+      mseAppending = false;
+      // QuotaExceeded etc — drop buffered, retry on next init.
+      mseExpectInit = true;
+      console.warn('appendBuffer failed:', err.message);
+    }
+  }
+
+  function enqueueChunk(arrayBuf) {
+    mseQueue.push(arrayBuf);
+    if (sourceBuffer && !sourceBuffer.updating) drainMse();
+  }
+
+  // If video falls too far behind live (tab was hidden, network stall), jump
+  // forward to the end of buffered. Keeps preview "live" rather than slowly
+  // catching up at 1x.
+  previewVideo.addEventListener('canplay', () => { showPreview(); });
+  setInterval(() => {
+    if (!sourceBuffer) return;
+    try {
+      const buffered = previewVideo.buffered;
+      if (buffered.length) {
+        const end = buffered.end(buffered.length - 1);
+        if (end - previewVideo.currentTime > 1.5) {
+          previewVideo.currentTime = end - 0.1;
+        }
+      }
+    } catch {}
+  }, 2000);
 
   function connect() {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -128,14 +216,27 @@
     };
 
     ws.onmessage = (e) => {
-      // Binary message = JPEG screencast frame (ArrayBuffer, see binaryType).
+      // Binary message = MP4 init segment (after video-init marker) or a
+      // media fragment. We just feed both into the same source buffer; MSE
+      // distinguishes by box type (ftyp/moov vs moof/mdat).
       if (typeof e.data !== 'string') {
         if (waitingForReconnect) return;
-        setPreviewBlob(new Blob([e.data], { type: 'image/jpeg' }));
+        if (mseExpectInit || !mediaSource) {
+          setupMse();
+          mseExpectInit = false;
+        }
+        enqueueChunk(e.data);
         return;
       }
       let msg;
       try { msg = JSON.parse(e.data); } catch { return; }
+
+      if (msg.type === 'video-init') {
+        // Server is about to send a fresh init segment — rebuild MSE so we
+        // don't try to append it on top of a buffer with a stale codec config.
+        mseExpectInit = true;
+        return;
+      }
 
       if (msg.type === 'status') {
         updateStatus(msg);
@@ -187,8 +288,9 @@
   }
 
   function showPreviewLoader(awaitReconnect) {
-    previewImg.style.display = 'none';
+    previewVideo.style.display = 'none';
     previewPlaceholder.style.display = 'flex';
+    mseExpectInit = true;
     if (awaitReconnect) waitingForReconnect = 'wait-disconnect';
   }
 
@@ -239,11 +341,13 @@
   const MULTI_CLICK_PX = 5;
 
   function previewCoords(e) {
-    const rect = previewImg.getBoundingClientRect();
-    const scaleX = previewImg.naturalWidth / rect.width;
-    const scaleY = previewImg.naturalHeight / rect.height;
-    const x = Math.max(0, Math.min(previewImg.naturalWidth,  (e.clientX - rect.left) * scaleX));
-    const y = Math.max(0, Math.min(previewImg.naturalHeight, (e.clientY - rect.top)  * scaleY));
+    const rect = previewVideo.getBoundingClientRect();
+    const natW = previewVideo.videoWidth || rect.width;
+    const natH = previewVideo.videoHeight || rect.height;
+    const scaleX = natW / rect.width;
+    const scaleY = natH / rect.height;
+    const x = Math.max(0, Math.min(natW, (e.clientX - rect.left) * scaleX));
+    const y = Math.max(0, Math.min(natH, (e.clientY - rect.top)  * scaleY));
     return { x, y };
   }
 
@@ -260,8 +364,8 @@
     return 0;
   }
 
-  previewImg.addEventListener('mousedown', (e) => {
-    if (!previewImg.naturalWidth) return;
+  previewVideo.addEventListener('mousedown', (e) => {
+    if (!previewVideo.videoWidth) return;
     e.preventDefault();
     dragging = true;
     currentButtons |= buttonBit(e.button);
@@ -299,13 +403,13 @@
 
   // Suppress the browser's native context menu on right-click so right-mouse
   // can be forwarded as a real button to the kiosk.
-  previewImg.addEventListener('contextmenu', (e) => e.preventDefault());
+  previewVideo.addEventListener('contextmenu', (e) => e.preventDefault());
 
   // Scroll on the preview → forward as mouseWheel to the kiosk page. Convert
   // line/page deltaMode to pixels with rough constants — chromium expects
   // CSS pixels.
-  previewImg.addEventListener('wheel', (e) => {
-    if (!previewImg.naturalWidth) return;
+  previewVideo.addEventListener('wheel', (e) => {
+    if (!previewVideo.videoWidth) return;
     e.preventDefault();
     let dx = e.deltaX;
     let dy = e.deltaY;

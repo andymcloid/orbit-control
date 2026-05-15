@@ -38,7 +38,10 @@ info "Kiosk user: $KIOSK_USER (home: $KIOSK_HOME)"
 
 info "Checking system packages..."
 PACKAGES_TO_INSTALL=()
-for pkg in chromium cage network-manager curl; do
+# ffmpeg is required for the H264/MSE preview pipeline (re-encodes CDP
+# screencast JPEGs to fragmented MP4 with h264_v4l2m2m hardware encoder on
+# Pi 5). Without it the preview pane stays blank.
+for pkg in chromium cage network-manager curl ffmpeg; do
   if ! dpkg -l "$pkg" 2>/dev/null | grep -q '^ii'; then
     PACKAGES_TO_INSTALL+=("$pkg")
   fi

@@ -59,7 +59,7 @@ body {
   overflow: hidden;
 }
 
-.preview-img {
+.preview-video {
   max-width: 100vw;
   max-height: 100vh;
   width: auto;
@@ -68,11 +68,14 @@ body {
   display: none;
   cursor: crosshair;
   user-select: none;
-  /* Block the browser's native image drag-and-drop so mousedown+drag becomes
-     a real pointer interaction we can forward to the kiosk instead of a
-     "drag the picture" ghost. */
-  -webkit-user-drag: none;
-  -webkit-touch-callout: none;
+  /* Hide native video chrome — this is a kiosk preview, not a player. */
+  background: #000;
+}
+
+.preview-video::-webkit-media-controls,
+.preview-video::-webkit-media-controls-enclosure,
+.preview-video::-webkit-media-controls-panel {
+  display: none !important;
 }
 
 .preview-placeholder {
