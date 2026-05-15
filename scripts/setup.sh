@@ -175,7 +175,7 @@ info "Autostart script copied to $AUTOSTART_DEST"
 BASH_PROFILE="$KIOSK_HOME/.bash_profile"
 MARKER="# OrbitControl auto-start"
 PROFILE_SNIPPET="$MARKER
-if [ \"\$(tty)\" = \"/dev/tty1\" ] && [ -z \"\$XDG_RUNTIME_DIR\" ] && [ -x ~/chromium-autostart.sh ]; then
+if [ \"\$(tty)\" = \"/dev/tty1\" ] && [ -x ~/chromium-autostart.sh ]; then
   exec ~/chromium-autostart.sh
 fi"
 
