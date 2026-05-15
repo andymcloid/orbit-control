@@ -48,7 +48,7 @@ while true; do
   read_kiosk_args
   echo "[$(date)] Starting kiosk: ${KIOSK_W}x${KIOSK_H} URL=$KIOSK_URL" >> "$LOG"
 
-  cage -s -- chromium-browser \
+  cage -s -- chromium \
     --ozone-platform=wayland \
     --enable-features=UseOzonePlatform,VaapiVideoDecoder,CanvasOopRasterization \
     --kiosk \

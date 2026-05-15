@@ -106,7 +106,7 @@ Press `Ctrl+C` to stop everything.
 
 ### What setup.sh does
 
-- Installs `chromium-browser`, `cage` (Wayland kiosk compositor), `network-manager`, and Node.js 20.x
+- Installs `chromium`, `cage` (Wayland kiosk compositor), `network-manager`, and Node.js 20.x
 - Configures tty1 autologin for your user
 - Writes `~/.bash_profile` to auto-launch the kiosk on tty1 login
 - Adds the kiosk user to the `input` group (so Ctrl+Alt+A hotkey works)

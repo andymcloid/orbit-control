@@ -38,7 +38,7 @@ info "Kiosk user: $KIOSK_USER (home: $KIOSK_HOME)"
 
 info "Checking system packages..."
 PACKAGES_TO_INSTALL=()
-for pkg in chromium-browser cage network-manager curl; do
+for pkg in chromium cage network-manager curl; do
   if ! dpkg -l "$pkg" 2>/dev/null | grep -q '^ii'; then
     PACKAGES_TO_INSTALL+=("$pkg")
   fi
