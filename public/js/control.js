@@ -15,7 +15,7 @@
   const statusText = document.getElementById('status-text');
   const sysInfo = document.getElementById('sys-info');
   const toastEl = document.getElementById('toast');
-  const previewVideo = document.getElementById('preview-video');
+  const previewImg = document.getElementById('preview-img');
   const previewPlaceholder = document.getElementById('preview-placeholder');
   const drawer = document.getElementById('drawer');
   const drawerBackdrop = document.getElementById('drawer-backdrop');
@@ -87,117 +87,31 @@
     toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2500);
   }
 
-  // -- MSE preview pipeline --
-  // The server sends `{type:'video-init'}` (text) immediately before the init
-  // segment (binary), then a stream of media fragments (binary). We keep a
-  // single MediaSource per WS connection; on reconnect or new init we tear
-  // it down and rebuild so we don't get appendBuffer errors from a partial
-  // stream. Drops old fragments aggressively to keep buffered range short —
-  // a kiosk preview should be live, not seekable history.
-
-  let mediaSource = null;
-  let sourceBuffer = null;
-  let mseUrl = null;
-  let mseQueue = [];
-  let mseAppending = false;
-  let mseExpectInit = false;
-
-  function showPreview() {
-    if (previewVideo.style.display !== 'block') previewVideo.style.display = 'block';
+  // Show the <img> the moment the MJPEG stream produces its first frame, and
+  // keep the placeholder spinner hidden after that — even if subsequent
+  // multipart parts trigger more `load` events, they're no-ops.
+  previewImg.addEventListener('load', () => {
+    if (previewImg.style.display !== 'block') previewImg.style.display = 'block';
     if (previewPlaceholder.style.display !== 'none') previewPlaceholder.style.display = 'none';
-  }
+  });
 
-  function teardownMse() {
-    try { if (sourceBuffer) mediaSource && mediaSource.removeSourceBuffer(sourceBuffer); } catch {}
-    try { if (mediaSource && mediaSource.readyState === 'open') mediaSource.endOfStream(); } catch {}
-    sourceBuffer = null;
-    mediaSource = null;
-    mseQueue = [];
-    mseAppending = false;
-    if (mseUrl) { try { URL.revokeObjectURL(mseUrl); } catch {} mseUrl = null; }
-  }
-
-  function setupMse() {
-    teardownMse();
-    mediaSource = new MediaSource();
-    mseUrl = URL.createObjectURL(mediaSource);
-    previewVideo.src = mseUrl;
-    mediaSource.addEventListener('sourceopen', () => {
-      try {
-        // H.264 high profile at level 4.0 (= avc1.640028) — matches what
-        // lib/encoder.js asks ffmpeg to produce (libx264 fallback) and is
-        // typically what h264_v4l2m2m emits by default on Pi 5. Level 4.0
-        // is required for 1080p; baseline@3.1 silently fails at this size.
-        sourceBuffer = mediaSource.addSourceBuffer('video/mp4; codecs="avc1.640028"');
-        sourceBuffer.mode = 'sequence';
-        sourceBuffer.addEventListener('updateend', drainMse);
-        sourceBuffer.addEventListener('error', () => {
-          // Most "errors" here are decode hiccups after a network blip — easiest
-          // recovery is to rebuild the MediaSource on the next init segment.
-          mseExpectInit = true;
-        });
-        drainMse();
-      } catch (err) {
-        console.warn('MSE sourceopen failed:', err);
-      }
-    });
-  }
-
-  function drainMse() {
-    if (!sourceBuffer || sourceBuffer.updating) return;
-    // Keep buffered window short (<= 3s) so we don't drift away from live.
-    try {
-      const buffered = sourceBuffer.buffered;
-      if (buffered.length) {
-        const end = buffered.end(buffered.length - 1);
-        if (end - buffered.start(0) > 3 && previewVideo.currentTime > buffered.start(0) + 2) {
-          sourceBuffer.remove(buffered.start(0), previewVideo.currentTime - 1);
-          return; // drain will be called again on updateend
-        }
-      }
-    } catch {}
-    if (mseQueue.length === 0) return;
-    const next = mseQueue.shift();
-    mseAppending = true;
-    try {
-      sourceBuffer.appendBuffer(next);
-    } catch (err) {
-      mseAppending = false;
-      // QuotaExceeded etc — drop buffered, retry on next init.
-      mseExpectInit = true;
-      console.warn('appendBuffer failed:', err.message);
-    }
-  }
-
-  function enqueueChunk(arrayBuf) {
-    mseQueue.push(arrayBuf);
-    if (sourceBuffer && !sourceBuffer.updating) drainMse();
-  }
-
-  // If video falls too far behind live (tab was hidden, network stall), jump
-  // forward to the end of buffered. Keeps preview "live" rather than slowly
-  // catching up at 1x.
-  previewVideo.addEventListener('canplay', () => { showPreview(); });
+  // If the MJPEG stream stalls (server restart, network blip, chromium
+  // disconnect+reconnect), the browser leaves the last frame on screen and
+  // never re-requests. Force a fresh load by reassigning src with a cache
+  // buster after a few seconds of no `load` events. This is the standard
+  // pattern for keeping IP-camera MJPEG embeds alive.
+  let lastFrameAt = Date.now();
+  previewImg.addEventListener('load', () => { lastFrameAt = Date.now(); });
   setInterval(() => {
-    if (!sourceBuffer) return;
-    try {
-      const buffered = previewVideo.buffered;
-      if (buffered.length) {
-        const end = buffered.end(buffered.length - 1);
-        if (end - previewVideo.currentTime > 1.5) {
-          previewVideo.currentTime = end - 0.1;
-        }
-      }
-    } catch {}
-  }, 2000);
+    if (Date.now() - lastFrameAt > 8000) {
+      previewImg.src = '/preview.mjpeg?t=' + Date.now();
+      lastFrameAt = Date.now();
+    }
+  }, 3000);
 
   function connect() {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     ws = new WebSocket(proto + '//' + location.host);
-    // Binary frames carry raw JPEG bytes from Page.startScreencast — handled
-    // as ArrayBuffer rather than the default Blob so we can hand it straight
-    // to URL.createObjectURL without an intermediate copy.
-    ws.binaryType = 'arraybuffer';
 
     ws.onopen = () => {
       ws.send(JSON.stringify({ type: 'preview-start', fps: readLocalFps() }));
@@ -213,35 +127,21 @@
         const spinner = updateStatusRow.querySelector('.spinner');
         if (spinner) spinner.style.display = 'none';
         btnUpdateClose.hidden = false;
-        loadSystemInfo();
+        // Server pushes fresh system-info on every WS connect, so the next
+        // automatic push will refresh the table — no explicit fetch here.
       }
     };
 
     ws.onmessage = (e) => {
-      // Binary message = MP4 init segment (after video-init marker) or a
-      // media fragment. We just feed both into the same source buffer; MSE
-      // distinguishes by box type (ftyp/moov vs moof/mdat).
-      if (typeof e.data !== 'string') {
-        if (waitingForReconnect) return;
-        if (mseExpectInit || !mediaSource) {
-          setupMse();
-          mseExpectInit = false;
-        }
-        enqueueChunk(e.data);
-        return;
-      }
       let msg;
       try { msg = JSON.parse(e.data); } catch { return; }
 
-      if (msg.type === 'video-init') {
-        // Server is about to send a fresh init segment — rebuild MSE so we
-        // don't try to append it on top of a buffer with a stale codec config.
-        mseExpectInit = true;
-        return;
-      }
-
       if (msg.type === 'status') {
         updateStatus(msg);
+      } else if (msg.type === 'system-info') {
+        renderSystemInfo(msg.info);
+      } else if (msg.type === 'wifi-status') {
+        renderWifiStatus(msg.status, msg.saved);
       } else if (msg.type === 'update-output') {
         appendUpdateLine(msg.stream === 'stderr' ? 'err' : 'std', msg.line);
       } else if (msg.type === 'update-step') {
@@ -290,9 +190,11 @@
   }
 
   function showPreviewLoader(awaitReconnect) {
-    previewVideo.style.display = 'none';
+    previewImg.style.display = 'none';
     previewPlaceholder.style.display = 'flex';
-    mseExpectInit = true;
+    // Force the MJPEG stream to reconnect when the underlying chromium is
+    // restarted — otherwise the browser sits on the dead connection.
+    previewImg.src = '/preview.mjpeg?t=' + Date.now();
     if (awaitReconnect) waitingForReconnect = 'wait-disconnect';
   }
 
@@ -348,7 +250,7 @@
   // these floats by the kiosk's real width/height before dispatching to CDP.
   // Means preview resolution can change without breaking click coordinates.
   function previewCoords(e) {
-    const rect = previewVideo.getBoundingClientRect();
+    const rect = previewImg.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return { x: 0, y: 0 };
     const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     const y = Math.max(0, Math.min(1, (e.clientY - rect.top)  / rect.height));
@@ -368,8 +270,8 @@
     return 0;
   }
 
-  previewVideo.addEventListener('mousedown', (e) => {
-    if (!previewVideo.videoWidth) return;
+  previewImg.addEventListener('mousedown', (e) => {
+    if (!previewImg.naturalWidth) return;
     e.preventDefault();
     dragging = true;
     currentButtons |= buttonBit(e.button);
@@ -407,13 +309,13 @@
 
   // Suppress the browser's native context menu on right-click so right-mouse
   // can be forwarded as a real button to the kiosk.
-  previewVideo.addEventListener('contextmenu', (e) => e.preventDefault());
+  previewImg.addEventListener('contextmenu', (e) => e.preventDefault());
 
   // Scroll on the preview → forward as mouseWheel to the kiosk page. Convert
   // line/page deltaMode to pixels with rough constants — chromium expects
   // CSS pixels.
-  previewVideo.addEventListener('wheel', (e) => {
-    if (!previewVideo.videoWidth) return;
+  previewImg.addEventListener('wheel', (e) => {
+    if (!previewImg.naturalWidth) return;
     e.preventDefault();
     let dx = e.deltaX;
     let dy = e.deltaY;
@@ -515,33 +417,31 @@
       .finally(() => { btnAdvancedSave.disabled = false; });
   });
 
-  function loadSystemInfo() {
-    fetch('/api/system-info')
-      .then(r => r.json())
-      .then(info => {
-        const cpuClass = info.cpuUsage == null ? '' : (info.cpuUsage >= 85 ? 'sys-status-bad' : info.cpuUsage >= 60 ? 'sys-status-warn' : 'sys-status-ok');
-        const tempVal = parseFloat(info.cpuTemp);
-        const tempClass = !isNaN(tempVal) ? (tempVal >= 80 ? 'sys-status-bad' : tempVal >= 70 ? 'sys-status-warn' : '') : '';
-        const loadClass = info.load && info.load.stressed ? 'sys-status-warn' : '';
-        const throttledClass = info.throttled ? (info.throttled.ok ? 'sys-status-ok' : 'sys-status-bad') : '';
-        const memVal = parseInt(info.memory.percent);
-        const memClass = !isNaN(memVal) && memVal >= 90 ? 'sys-status-bad' : '';
-        const gitVal = info.git ? info.git.hash + ' (' + info.git.branch + ')' : 'N/A';
+  // Render a system-info object into the sys-table. The data arrives via WS
+  // push from the server every few seconds — no per-client HTTP polling.
+  function renderSystemInfo(info) {
+    if (!info) return;
+    const cpuClass = info.cpuUsage == null ? '' : (info.cpuUsage >= 85 ? 'sys-status-bad' : info.cpuUsage >= 60 ? 'sys-status-warn' : 'sys-status-ok');
+    const tempVal = parseFloat(info.cpuTemp);
+    const tempClass = !isNaN(tempVal) ? (tempVal >= 80 ? 'sys-status-bad' : tempVal >= 70 ? 'sys-status-warn' : '') : '';
+    const loadClass = info.load && info.load.stressed ? 'sys-status-warn' : '';
+    const throttledClass = info.throttled ? (info.throttled.ok ? 'sys-status-ok' : 'sys-status-bad') : '';
+    const memVal = parseInt(info.memory.percent);
+    const memClass = !isNaN(memVal) && memVal >= 90 ? 'sys-status-bad' : '';
+    const gitVal = info.git ? info.git.hash + ' (' + info.git.branch + ')' : 'N/A';
 
-        sysInfo.innerHTML =
-          row('IP', info.ip) +
-          row('Hostname', info.hostname) +
-          (info.model ? row('Model', info.model) : '') +
-          row('CPU Temp', info.cpuTemp, tempClass) +
-          (info.cpuUsage != null ? row('CPU Use', info.cpuUsage + '%' + (info.cpuFreq ? ' @ ' + info.cpuFreq : ''), cpuClass) : '') +
-          (info.load ? row('Load', info.load.one + ' / ' + info.load.five + ' / ' + info.load.fifteen + ' (' + info.cpuCores + ' cores)', loadClass) : '') +
-          (info.throttled ? row('Throttled', info.throttled.label, throttledClass) : '') +
-          row('Memory', info.memory.percent + ' (' + info.memory.free + ' free)', memClass) +
-          row('Disk', info.disk.percent + ' (' + info.disk.free + ' free)') +
-          row('Uptime', info.uptime) +
-          row('Version', gitVal);
-      })
-      .catch(() => { sysInfo.innerHTML = '<tr><td>Error</td><td>Could not load</td></tr>'; });
+    sysInfo.innerHTML =
+      row('IP', info.ip) +
+      row('Hostname', info.hostname) +
+      (info.model ? row('Model', info.model) : '') +
+      row('CPU Temp', info.cpuTemp, tempClass) +
+      (info.cpuUsage != null ? row('CPU Use', info.cpuUsage + '%' + (info.cpuFreq ? ' @ ' + info.cpuFreq : ''), cpuClass) : '') +
+      (info.load ? row('Load', info.load.one + ' / ' + info.load.five + ' / ' + info.load.fifteen + ' (' + info.cpuCores + ' cores)', loadClass) : '') +
+      (info.throttled ? row('Throttled', info.throttled.label, throttledClass) : '') +
+      row('Memory', info.memory.percent + ' (' + info.memory.free + ' free)', memClass) +
+      row('Disk', info.disk.percent + ' (' + info.disk.free + ' free)') +
+      row('Uptime', info.uptime) +
+      row('Version', gitVal);
   }
 
   function row(label, value, cls) {
@@ -734,22 +634,28 @@
   let wifiConnectTarget = null;
   let wifiSavedSet = new Set();
 
+  // Render wifi state into the UI. Called from the WS push every few seconds
+  // AND from on-demand refresh paths (after connect/forget actions).
+  function renderWifiStatus(status, saved) {
+    const s = status || {};
+    const ssid = s.ssid || '—';
+    const online = s.connected;
+    netDot.className = 'net-dot' + (online ? ' online' : '');
+    netSsid.textContent = ssid;
+    if (wifiModalSsid) {
+      wifiModalSsid.textContent = ssid + (online && s.ip ? ' (' + s.ip + ')' : '');
+      wifiModalDot.className = 'net-dot' + (online ? ' online' : '');
+    }
+    wifiSavedSet = new Set((saved || []).map((n) => n.ssid));
+    renderSavedNetworks(saved || []);
+  }
+
   function refreshWifiPanel() {
+    // One-off fetch — used after wifi connect/forget when we want the panel
+    // to update immediately instead of waiting up to a push interval.
     fetch('/api/wifi/status')
       .then((r) => r.json())
-      .then((data) => {
-        const s = data.status || {};
-        const ssid = s.ssid || '—';
-        const online = s.connected;
-        netDot.className = 'net-dot' + (online ? ' online' : '');
-        netSsid.textContent = ssid;
-        if (wifiModalSsid) {
-          wifiModalSsid.textContent = ssid + (online && s.ip ? ' (' + s.ip + ')' : '');
-          wifiModalDot.className = 'net-dot' + (online ? ' online' : '');
-        }
-        wifiSavedSet = new Set((data.saved || []).map((n) => n.ssid));
-        renderSavedNetworks(data.saved || []);
-      })
+      .then((data) => renderWifiStatus(data.status, data.saved))
       .catch(() => {});
   }
 
@@ -909,14 +815,12 @@
 
   // -- Init --
   loadSettings();
-  loadSystemInfo();
-  setInterval(loadSystemInfo, 10000);
   connect();
 
   // Sync display select after initial settings load
   fetch('/api/settings').then(r => r.json()).then(setDisplaySelectFromSettings).catch(() => {});
 
-  // Initial WiFi state + refresh every 15s for current SSID
-  refreshWifiPanel();
-  setInterval(refreshWifiPanel, 15000);
+  // System-info + wifi-status are now pushed over WS every few seconds by
+  // server.js (and the server fires an immediate push on each new WS
+  // connection). No HTTP polling intervals needed.
 })();

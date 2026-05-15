@@ -10,9 +10,10 @@
 
   <!-- Edge-to-edge preview stage -->
   <main class="preview-stage">
-    <!-- H264 stream fed via MediaSource — autoplay + muted so the browser
-         permits playback without a user gesture; playsinline for iOS. -->
-    <video id="preview-video" class="preview-video" autoplay muted playsinline></video>
+    <!-- MJPEG stream served as multipart/x-mixed-replace from /preview.mjpeg.
+         Browser decodes + repaints each frame natively, zero JS per frame.
+         Single long-lived HTTP connection instead of WS-blob spam. -->
+    <img id="preview-img" class="preview-img" src="/preview.mjpeg" alt="Kiosk preview" draggable="false">
     <div class="preview-placeholder" id="preview-placeholder"><div class="spinner"></div></div>
   </main>
 

@@ -9,7 +9,6 @@ const update = require('./lib/update');
 const wifi = require('./lib/wifi');
 const cdp = require('./lib/cdp');
 const hotkey = require('./lib/hotkey');
-const encoder = require('./lib/encoder');
 
 const SETTINGS_PATH = path.join(__dirname, 'settings.json');
 
@@ -450,14 +449,15 @@ function updatePreview() {
   // anything about the kiosk itself. With multiple panels open we use the
   // max requested rate so a slow client doesn't throttle a fast one — the
   // slow one just receives more frames than it strictly needs.
-  let anyWant = false;
   let maxFps = 1;
+  let wsWant = false;
   for (const ws of controlClients) {
     if (!ws._wantPreview) continue;
-    anyWant = true;
+    wsWant = true;
     const fps = ws._previewFps || 1;
     if (fps > maxFps) maxFps = fps;
   }
+  const anyWant = wsWant || mjpegClients.size > 0;
   if (anyWant && cdp.isConnected()) {
     cdp.setPreviewFps(maxFps);
     cdp.startPreview();
@@ -470,40 +470,15 @@ wss.on('connection', (ws) => {
   controlClients.add(ws);
   ws._wantPreview = false;
   ws._previewFps = 1;
-  // Per-WS encoder listener — created on preview-start, removed on stop/close.
-  // The encoder reference-counts its subscribers, so the ffmpeg subprocess
-  // only runs while at least one panel is watching.
-  ws._encListener = null;
-
-  function attachEncoder() {
-    if (ws._encListener) return;
-    ws._encListener = {
-      onInit: (initBuf) => {
-        if (ws.readyState !== 1) return;
-        // Signal a fresh MSE source so the client knows the next binary
-        // frame is the init segment, not a media fragment.
-        try { ws.send(JSON.stringify({ type: 'video-init' })); } catch {}
-        try { ws.send(initBuf, { binary: true }); } catch {}
-      },
-      onChunk: (chunk) => {
-        if (ws.readyState !== 1) return;
-        try { ws.send(chunk, { binary: true }); } catch {}
-      },
-    };
-    encoder.subscribe(ws._encListener);
-  }
-
-  function detachEncoder() {
-    if (!ws._encListener) return;
-    encoder.unsubscribe(ws._encListener);
-    ws._encListener = null;
-  }
 
   ws.send(JSON.stringify({
     type: 'status',
     browser_connected: cdp.isConnected(),
     settings: readSettings(),
   }));
+  // Fire a system-info/wifi push to this WS immediately so it doesn't have to
+  // wait up to STATUS_PUSH_INTERVAL_MS for the next periodic broadcast.
+  pushStatusUpdates();
 
   ws.on('message', (raw) => {
     let msg;
@@ -512,11 +487,9 @@ wss.on('connection', (ws) => {
     if (msg.type === 'preview-start') {
       ws._wantPreview = true;
       if (msg.fps) ws._previewFps = Math.max(1, Math.min(30, parseInt(msg.fps, 10) || 1));
-      attachEncoder();
       updatePreview();
     } else if (msg.type === 'preview-stop') {
       ws._wantPreview = false;
-      detachEncoder();
       updatePreview();
     } else if (msg.type === 'preview-fps') {
       ws._previewFps = Math.max(1, Math.min(30, parseInt(msg.fps, 10) || 1));
@@ -544,16 +517,53 @@ wss.on('connection', (ws) => {
 
   ws.on('close', () => {
     controlClients.delete(ws);
-    detachEncoder();
     updatePreview();
   });
 });
 
-// Pipe CDP screencast JPEGs into the H264 encoder. Per-client subscription
-// happens at preview-start/stop time below — the encoder only runs while at
-// least one subscriber is listening.
+// --- MJPEG preview stream over HTTP ---
+// Each connected admin panel opens a long-lived `GET /preview.mjpeg` request.
+// chromium's screencast JPEGs are written to all open responses as multipart
+// frames (the same protocol IP cameras use). The browser handles decode +
+// repaint natively via <img>, so there's zero JS per frame and no encoding
+// step on the Pi — just byte-pipe from chromium → HTTP clients.
+const MJPEG_BOUNDARY = 'orbit-frame';
+const mjpegClients = new Set();
+
 cdp.setOnScreenshotFrame((jpegBuf) => {
-  encoder.writeFrame(jpegBuf);
+  if (mjpegClients.size === 0) return;
+  const header = Buffer.from(
+    `\r\n--${MJPEG_BOUNDARY}\r\nContent-Type: image/jpeg\r\nContent-Length: ${jpegBuf.length}\r\n\r\n`,
+    'ascii'
+  );
+  for (const res of mjpegClients) {
+    try {
+      res.write(header);
+      res.write(jpegBuf);
+    } catch {}
+  }
+});
+
+app.get('/preview.mjpeg', (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': `multipart/x-mixed-replace; boundary=${MJPEG_BOUNDARY}`,
+    'Cache-Control': 'no-cache, no-store, max-age=0',
+    'Pragma': 'no-cache',
+    'Connection': 'close',
+    'X-Accel-Buffering': 'no', // disable proxy buffering (cloudflared, nginx)
+  });
+  mjpegClients.add(res);
+  // Trigger screencast if not already running so frames start flowing
+  // immediately, without waiting for the panel's WS preview-start.
+  updatePreview();
+  req.on('close', () => {
+    mjpegClients.delete(res);
+    updatePreview();
+  });
+  req.on('error', () => {
+    mjpegClients.delete(res);
+    updatePreview();
+  });
 });
 
 // --- CDP connection state ---
@@ -578,6 +588,34 @@ cdp.setOnConnectChange(async (connected) => {
 // --- Start ---
 
 const PORT = parseInt(process.env.PORT, 10) || 80;
+// Push system-info + wifi-status to all connected control clients every few
+// seconds. Replaces the previous per-client HTTP polling — same data, one
+// gather, broadcast over the existing WS so there's no duplicate work and
+// no roundtrip storm.
+const STATUS_PUSH_INTERVAL_MS = 5000;
+function broadcastJson(obj) {
+  const data = JSON.stringify(obj);
+  for (const ws of controlClients) {
+    if (ws.readyState === 1) {
+      try { ws.send(data); } catch {}
+    }
+  }
+}
+
+async function pushStatusUpdates() {
+  if (controlClients.size === 0) return;
+  try {
+    const info = await getSystemInfo();
+    info.git = update.getGitInfo(__dirname);
+    broadcastJson({ type: 'system-info', info });
+  } catch {}
+  try {
+    const [status, saved] = await Promise.all([wifi.getStatus(), wifi.listSaved()]);
+    broadcastJson({ type: 'wifi-status', status, saved });
+  } catch {}
+}
+setInterval(pushStatusUpdates, STATUS_PUSH_INTERVAL_MS);
+
 server.listen(PORT, () => {
   console.log(`OrbitControl running on http://0.0.0.0:${PORT}`);
   cdp.connect();
