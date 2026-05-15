@@ -124,9 +124,11 @@
     previewVideo.src = mseUrl;
     mediaSource.addEventListener('sourceopen', () => {
       try {
-        // Baseline H.264 profile (level 3.1 = up to 1920x1080@30) — matches
-        // what lib/encoder.js asks ffmpeg to produce.
-        sourceBuffer = mediaSource.addSourceBuffer('video/mp4; codecs="avc1.42E01F"');
+        // H.264 high profile at level 4.0 (= avc1.640028) — matches what
+        // lib/encoder.js asks ffmpeg to produce (libx264 fallback) and is
+        // typically what h264_v4l2m2m emits by default on Pi 5. Level 4.0
+        // is required for 1080p; baseline@3.1 silently fails at this size.
+        sourceBuffer = mediaSource.addSourceBuffer('video/mp4; codecs="avc1.640028"');
         sourceBuffer.mode = 'sequence';
         sourceBuffer.addEventListener('updateend', drainMse);
         sourceBuffer.addEventListener('error', () => {
