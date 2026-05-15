@@ -3,6 +3,7 @@ const { WebSocketServer } = require('ws');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { spawn } = require('child_process');
 const { getSystemInfo, restartKiosk, reboot } = require('./lib/system');
 const update = require('./lib/update');
 const wifi = require('./lib/wifi');
@@ -44,7 +45,6 @@ function readSettings() {
     hideCursorDelay: s.hideCursorDelay != null ? s.hideCursorDelay : 10,
     name: s.name || 'Orbit',
     zoom: s.zoom != null ? s.zoom : 1,
-    previewFps: s.previewFps || 1,
     kioskFlags: s.kioskFlags != null ? s.kioskFlags : DEFAULT_KIOSK_FLAGS,
   };
 }
@@ -98,7 +98,6 @@ app.post('/api/settings', (req, res) => {
     updated.resolution = { ...current.resolution, ...req.body.resolution };
   }
   writeSettings(updated);
-  if (req.body.previewFps != null) cdp.setPreviewFps(req.body.previewFps);
   res.json(updated);
 });
 
@@ -280,9 +279,18 @@ app.post('/api/update', async (req, res) => {
     });
     update.invalidateGitInfoCache();
     broadcast({ type: 'update-status', status: 'restarting' });
-    // Give the websocket a moment to flush, then exit. systemd's Restart=always
-    // brings the service back up with the freshly pulled code.
-    setTimeout(() => process.exit(0), 1500);
+    // Restart via systemd rather than process.exit(0). Under load (10 hotkey
+    // fs.createReadStreams blocking the libuv thread pool + high-fps preview
+    // broadcasts) Node's own exit has been observed to stall mid-V8-shutdown,
+    // leaving the service "active" but stuck. `systemctl restart` is an
+    // out-of-band SIGTERM from PID 1 — kernel terminates blocked threads
+    // and systemd guarantees the new instance comes up.
+    setTimeout(() => {
+      spawn('systemctl', ['restart', 'orbit-control'], {
+        detached: true,
+        stdio: 'ignore',
+      }).unref();
+    }, 1000);
   } catch (err) {
     broadcast({ type: 'update-status', status: 'error', error: err.message });
     updateInProgress = false;
@@ -305,11 +313,21 @@ function broadcastStatus() {
 }
 
 function updatePreview() {
+  // Preview FPS is a per-client preference (stored in the client's localStorage)
+  // because it's about *how fast the operator wants to watch* the kiosk, not
+  // anything about the kiosk itself. With multiple panels open we use the
+  // max requested rate so a slow client doesn't throttle a fast one — the
+  // slow one just receives more frames than it strictly needs.
   let anyWant = false;
+  let maxFps = 1;
   for (const ws of controlClients) {
-    if (ws._wantPreview) { anyWant = true; break; }
+    if (!ws._wantPreview) continue;
+    anyWant = true;
+    const fps = ws._previewFps || 1;
+    if (fps > maxFps) maxFps = fps;
   }
   if (anyWant && cdp.isConnected()) {
+    cdp.setPreviewFps(maxFps);
     cdp.startPreview();
   } else {
     cdp.stopPreview();
@@ -319,6 +337,7 @@ function updatePreview() {
 wss.on('connection', (ws) => {
   controlClients.add(ws);
   ws._wantPreview = false;
+  ws._previewFps = 1;
 
   ws.send(JSON.stringify({
     type: 'status',
@@ -332,10 +351,28 @@ wss.on('connection', (ws) => {
 
     if (msg.type === 'preview-start') {
       ws._wantPreview = true;
+      if (msg.fps) ws._previewFps = Math.max(1, Math.min(30, parseInt(msg.fps, 10) || 1));
       updatePreview();
     } else if (msg.type === 'preview-stop') {
       ws._wantPreview = false;
       updatePreview();
+    } else if (msg.type === 'preview-fps') {
+      ws._previewFps = Math.max(1, Math.min(30, parseInt(msg.fps, 10) || 1));
+      updatePreview();
+    } else if (msg.type === 'mouse') {
+      // Forward raw pointer events from the preview pane to chromium via CDP.
+      // Errors are swallowed because the WS message is fire-and-forget — if
+      // chromium is briefly disconnected the operator just sees the next
+      // click do nothing rather than a crash dump.
+      const { action, x, y } = msg;
+      if (typeof x !== 'number' || typeof y !== 'number') return;
+      cdp.mouseEvent(action, x, y, {
+        button: msg.button,
+        buttons: msg.buttons,
+        dx: msg.dx,
+        dy: msg.dy,
+        clickCount: msg.clickCount,
+      }).catch(() => {});
     }
   });
 
@@ -377,8 +414,6 @@ cdp.setOnConnectChange(async (connected) => {
 const PORT = parseInt(process.env.PORT, 10) || 80;
 server.listen(PORT, () => {
   console.log(`OrbitControl running on http://0.0.0.0:${PORT}`);
-  const initial = readSettings();
-  if (initial.previewFps) cdp.setPreviewFps(initial.previewFps);
   cdp.connect();
   hotkey.start(() => {
     toggleAdminPanel().catch((err) =>

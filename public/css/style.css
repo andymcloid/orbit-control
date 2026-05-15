@@ -68,6 +68,11 @@ body {
   display: none;
   cursor: crosshair;
   user-select: none;
+  /* Block the browser's native image drag-and-drop so mousedown+drag becomes
+     a real pointer interaction we can forward to the kiosk instead of a
+     "drag the picture" ghost. */
+  -webkit-user-drag: none;
+  -webkit-touch-callout: none;
 }
 
 .preview-placeholder {

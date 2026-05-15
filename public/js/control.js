@@ -62,6 +62,18 @@
   let zoomTimer;
   let backdropHideTimer;
   let updating = false;
+
+  // Per-client preview rate — saved locally because it's a viewer preference,
+  // not anything about the kiosk. Server tracks each client's wanted rate and
+  // uses the max across connected clients.
+  const FPS_STORAGE_KEY = 'orbit.previewFps';
+  function readLocalFps() {
+    const v = parseInt(localStorage.getItem(FPS_STORAGE_KEY) || '1', 10);
+    return Math.max(1, Math.min(30, isNaN(v) ? 1 : v));
+  }
+  function writeLocalFps(fps) {
+    try { localStorage.setItem(FPS_STORAGE_KEY, String(fps)); } catch {}
+  }
   // State: null = normal, 'wait-disconnect' = action fired, waiting for browser to go offline,
   //        'wait-reconnect' = browser went offline, waiting for it to come back
   let waitingForReconnect = null;
@@ -79,7 +91,7 @@
     ws = new WebSocket(proto + '//' + location.host);
 
     ws.onopen = () => {
-      ws.send(JSON.stringify({ type: 'preview-start' }));
+      ws.send(JSON.stringify({ type: 'preview-start', fps: readLocalFps() }));
       // If we were mid-update when the connection dropped, the server has now
       // come back up with the new code → close the modal.
       if (updating) {
@@ -187,20 +199,80 @@
     if (e.key === 'Escape' && drawer.classList.contains('open')) closeDrawer();
   });
 
-  // -- Click on preview to interact --
-  previewImg.addEventListener('click', (e) => {
-    if (!previewImg.naturalWidth) return;
+  // -- Pointer interaction on the preview --
+  // mousedown/move/up are forwarded as individual CDP events over WS so a
+  // drag really drags (text selection, draggable elements), a wheel really
+  // scrolls, and a click is just press+release at the same coord. Throttle
+  // move events to ~60Hz so a fast drag doesn't flood the socket.
+  let dragging = false;
+  let currentButtons = 0;
+  let lastMoveSent = 0;
+
+  function previewCoords(e) {
     const rect = previewImg.getBoundingClientRect();
     const scaleX = previewImg.naturalWidth / rect.width;
     const scaleY = previewImg.naturalHeight / rect.height;
-    const x = (e.clientX - rect.left) * scaleX;
-    const y = (e.clientY - rect.top) * scaleY;
-    fetch('/api/click', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ x, y }),
-    }).catch(() => {});
+    const x = Math.max(0, Math.min(previewImg.naturalWidth,  (e.clientX - rect.left) * scaleX));
+    const y = Math.max(0, Math.min(previewImg.naturalHeight, (e.clientY - rect.top)  * scaleY));
+    return { x, y };
+  }
+
+  function buttonName(btn) {
+    if (btn === 0) return 'left';
+    if (btn === 1) return 'middle';
+    if (btn === 2) return 'right';
+    return 'left';
+  }
+  function buttonBit(btn) {
+    if (btn === 0) return 1;
+    if (btn === 1) return 4;
+    if (btn === 2) return 2;
+    return 0;
+  }
+
+  previewImg.addEventListener('mousedown', (e) => {
+    if (!previewImg.naturalWidth) return;
+    e.preventDefault();
+    dragging = true;
+    currentButtons |= buttonBit(e.button);
+    const { x, y } = previewCoords(e);
+    wsSend({ type: 'mouse', action: 'press', x, y, button: buttonName(e.button) });
   });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    const now = performance.now();
+    if (now - lastMoveSent < 16) return; // ~60Hz cap
+    lastMoveSent = now;
+    const { x, y } = previewCoords(e);
+    wsSend({ type: 'mouse', action: 'move', x, y, buttons: currentButtons });
+  });
+
+  document.addEventListener('mouseup', (e) => {
+    if (!dragging) return;
+    dragging = false;
+    currentButtons &= ~buttonBit(e.button);
+    const { x, y } = previewCoords(e);
+    wsSend({ type: 'mouse', action: 'release', x, y, button: buttonName(e.button) });
+  });
+
+  // Suppress the browser's native context menu on right-click so right-mouse
+  // can be forwarded as a real button to the kiosk.
+  previewImg.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  // Scroll on the preview → forward as mouseWheel to the kiosk page. Convert
+  // line/page deltaMode to pixels with rough constants — chromium expects
+  // CSS pixels.
+  previewImg.addEventListener('wheel', (e) => {
+    if (!previewImg.naturalWidth) return;
+    e.preventDefault();
+    let dx = e.deltaX;
+    let dy = e.deltaY;
+    if (e.deltaMode === 1) { dx *= 16; dy *= 16; }       // lines → px
+    else if (e.deltaMode === 2) { dx *= 800; dy *= 800; }// pages → px
+    const { x, y } = previewCoords(e);
+    wsSend({ type: 'mouse', action: 'wheel', x, y, dx, dy });
+  }, { passive: false });
 
   // -- Load data --
   function loadSettings() {
@@ -211,22 +283,17 @@
         const z = Math.round((s.zoom || 1) * 100);
         zoomSlider.value = z;
         zoomValue.textContent = z + '%';
-        if (s.previewFps) fpsPreset.value = String(s.previewFps);
       })
       .catch(() => {});
   }
 
-  // -- Preview FPS --
+  // -- Preview FPS (client-local, sent over WS) --
+  fpsPreset.value = String(readLocalFps());
   fpsPreset.addEventListener('change', () => {
     const fps = parseInt(fpsPreset.value, 10) || 1;
-    fetch('/api/settings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ previewFps: fps }),
-    })
-      .then(r => r.json())
-      .then(() => toast('Preview ' + fps + ' fps'))
-      .catch(() => toast('Failed'));
+    writeLocalFps(fps);
+    wsSend({ type: 'preview-fps', fps });
+    toast('Preview ' + fps + ' fps');
   });
 
   // -- Advanced (chromium flags) modal --
