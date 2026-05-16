@@ -38,10 +38,10 @@ info "Kiosk user: $KIOSK_USER (home: $KIOSK_HOME)"
 
 info "Checking system packages..."
 PACKAGES_TO_INSTALL=()
-# ffmpeg is required for the H264/MSE preview pipeline (re-encodes CDP
-# screencast JPEGs to fragmented MP4 with h264_v4l2m2m hardware encoder on
-# Pi 5). Without it the preview pane stays blank.
-for pkg in chromium cage network-manager curl ffmpeg; do
+# labwc is the kiosk compositor (NOT cage): cage can't give chromium a working
+# GL context on Pi 5, so everything software-rasterises. labwc exposes the
+# dmabuf/EGL path chromium's GPU process needs.
+for pkg in chromium labwc network-manager curl; do
   if ! dpkg -l "$pkg" 2>/dev/null | grep -q '^ii'; then
     PACKAGES_TO_INSTALL+=("$pkg")
   fi
@@ -53,6 +53,17 @@ if [[ ${#PACKAGES_TO_INSTALL[@]} -gt 0 ]]; then
   apt-get install -y -qq "${PACKAGES_TO_INSTALL[@]}"
 else
   info "All system packages already installed."
+fi
+
+# Raspberry Pi's chromium ships /etc/chromium.d/00-rpi-vars which force-adds
+# --force-renderer-accessibility. On a dynamic dashboard that rebuilds the
+# accessibility tree on every DOM mutation — heavy sustained CPU. We bypass
+# the chromium wrapper in chromium-autostart.sh anyway, but strip it here too
+# so any chromium launch on the box is clean.
+RPI_VARS="/etc/chromium.d/00-rpi-vars"
+if [[ -f "$RPI_VARS" ]] && grep -q -- '--force-renderer-accessibility' "$RPI_VARS"; then
+  info "Stripping --force-renderer-accessibility from $RPI_VARS"
+  sed -i 's/ --force-renderer-accessibility//g' "$RPI_VARS"
 fi
 
 # --- Ensure NetworkManager is the active network manager ---

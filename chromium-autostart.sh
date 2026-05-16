@@ -1,6 +1,22 @@
 #!/bin/bash
-# OrbitControl Kiosk Autostart (Pi OS Lite + cage)
-# Chromium loads URL directly under cage; OrbitControl controls it via CDP (port 9222).
+# OrbitControl Kiosk Autostart (Pi OS Lite + labwc)
+#
+# Compositor is labwc, NOT cage: cage on Pi 5 can't give chromium a working
+# GL context (chromium's GPU process dies with EGL_BAD_PARAMETER and the whole
+# page falls back to software rasterisation — ~45% CPU per core on a static
+# page, crash-looping the GPU process dozens of times). Under labwc chromium
+# gets hardware V3D (WebGL/canvas/raster all GPU) and the GPU process is
+# stable. labwc is launched headless-style; we run chromium ourselves against
+# its Wayland socket and tear labwc down when chromium exits, so the restart
+# loop behaves exactly like the old `cage -s -- chromium` did.
+#
+# chromium is invoked as /usr/lib/chromium/chromium (the real binary) instead
+# of /usr/bin/chromium (the Pi wrapper) to skip wrapper-injected flags like
+# --force-renderer-accessibility (rebuilds the a11y tree on every DOM mutation
+# = heavy CPU on dynamic dashboards) and the invalid
+# --js-flags=--no-decommit-pooled-pages.
+#
+# OrbitControl controls chromium via CDP (port 9222).
 
 OC_PORT="${ORBIT_PORT:-80}"
 LOG=$HOME/kiosk.log
@@ -67,7 +83,7 @@ read_kiosk_flags() {
   done <<< "$out"
 }
 
-# Kiosk loop — if chromium/cage exits/crashes, it restarts automatically
+# Kiosk loop — if chromium/labwc exits/crashes, it restarts automatically
 while true; do
   read_kiosk_args
   read_kiosk_flags
@@ -77,8 +93,20 @@ while true; do
   CHROMIUM_FLAGS+=("--window-size=${KIOSK_W},${KIOSK_H}")
   echo "[$(date)] Starting kiosk: ${KIOSK_W}x${KIOSK_H} URL=$KIOSK_URL flags=${#CHROMIUM_FLAGS[@]}" >> "$LOG"
 
-  cage -s -- chromium "${CHROMIUM_FLAGS[@]}" "$KIOSK_URL" >> "$LOG" 2>&1
+  # Start labwc as the compositor with an empty autostart (we launch chromium
+  # ourselves so we control its lifecycle). Wait for its Wayland socket, run
+  # chromium against it, then kill labwc when chromium exits so the loop
+  # restarts the whole thing — same lifecycle the old cage line had.
+  LABWC_HOME="$HOME/.cache/orbit-labwc"
+  mkdir -p "$LABWC_HOME/labwc"
+  : > "$LABWC_HOME/labwc/autostart"
+  XDG_CONFIG_HOME="$LABWC_HOME" labwc >> "$LOG" 2>&1 &
+  LABWC_PID=$!
+  RT="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+  for _i in $(seq 1 50); do [ -S "$RT/wayland-0" ] && break; sleep 0.2; done
+  WAYLAND_DISPLAY=wayland-0 /usr/lib/chromium/chromium "${CHROMIUM_FLAGS[@]}" "$KIOSK_URL" >> "$LOG" 2>&1
+  kill "$LABWC_PID" 2>/dev/null; wait "$LABWC_PID" 2>/dev/null
 
-  echo "[$(date)] cage/chromium exited, restarting in 3s..." >> "$LOG"
+  echo "[$(date)] chromium/labwc exited, restarting in 3s..." >> "$LOG"
   sleep 3
 done

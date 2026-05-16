@@ -22,9 +22,17 @@ const SETTINGS_PATH = path.join(__dirname, 'settings.json');
 //   overflow:auto scrolling.
 //   --window-size is appended dynamically from the saved resolution, not stored
 //   here.
+// Defaults assume labwc as the compositor (see chromium-autostart.sh), where
+// chromium gets a real V3D GL context — so the GPU-accel flags actually take
+// effect instead of being dead weight like they were under cage.
+// --disable-renderer-accessibility stops chromium auto-enabling the a11y tree
+// when it detects the system at-spi bus (heavy CPU on dynamic pages).
 const DEFAULT_KIOSK_FLAGS = [
   '--ozone-platform=wayland',
   '--enable-features=UseOzonePlatform,VaapiVideoDecoder',
+  '--ignore-gpu-blocklist',
+  '--enable-gpu-rasterization',
+  '--disable-renderer-accessibility',
   '--kiosk',
   '--start-fullscreen',
   '--noerrdialogs',
