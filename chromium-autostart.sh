@@ -93,19 +93,40 @@ while true; do
   CHROMIUM_FLAGS+=("--window-size=${KIOSK_W},${KIOSK_H}")
   echo "[$(date)] Starting kiosk: ${KIOSK_W}x${KIOSK_H} URL=$KIOSK_URL flags=${#CHROMIUM_FLAGS[@]}" >> "$LOG"
 
-  # Start labwc as the compositor with an empty autostart (we launch chromium
-  # ourselves so we control its lifecycle). Wait for its Wayland socket, run
-  # chromium against it, then kill labwc when chromium exits so the loop
-  # restarts the whole thing — same lifecycle the old cage line had.
+  # Let labwc launch chromium itself via its autostart file — the same model
+  # `cage -s -- chromium` used. labwc runs autostart ONLY after its Wayland
+  # socket is fully up, and chromium inherits the exact WAYLAND_DISPLAY labwc
+  # actually bound. The old approach (start labwc backgrounded, poll for the
+  # wayland-0 socket *file*, then start chromium with a hardcoded
+  # WAYLAND_DISPLAY=wayland-0) raced: on a kiosk restart a stale wayland-0
+  # socket from the just-killed previous session still exists, so the file
+  # check passes instantly and chromium connects to a dead socket
+  # (ECONNREFUSED) — or labwc binds wayland-1 because wayland-0's lock is
+  # stale, and chromium on hardcoded wayland-0 never connects. Either way:
+  # crash-loop for 20-60s until timing happens to line up. Delegating launch
+  # to the compositor removes the race entirely.
   LABWC_HOME="$HOME/.cache/orbit-labwc"
-  mkdir -p "$LABWC_HOME/labwc"
-  : > "$LABWC_HOME/labwc/autostart"
-  XDG_CONFIG_HOME="$LABWC_HOME" labwc >> "$LOG" 2>&1 &
-  LABWC_PID=$!
   RT="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
-  for _i in $(seq 1 50); do [ -S "$RT/wayland-0" ] && break; sleep 0.2; done
-  WAYLAND_DISPLAY=wayland-0 /usr/lib/chromium/chromium "${CHROMIUM_FLAGS[@]}" "$KIOSK_URL" >> "$LOG" 2>&1
-  kill "$LABWC_PID" 2>/dev/null; wait "$LABWC_PID" 2>/dev/null
+  mkdir -p "$LABWC_HOME/labwc"
+
+  # Autostart: run chromium in the foreground; when it exits, SIGTERM labwc
+  # (the autostart script's parent) so this foreground `labwc` returns and the
+  # loop restarts the whole stack cleanly.
+  {
+    printf '%s' "/usr/lib/chromium/chromium"
+    for _f in "${CHROMIUM_FLAGS[@]}"; do printf ' %q' "$_f"; done
+    printf ' %q\n' "$KIOSK_URL"
+    echo 'kill "$PPID" 2>/dev/null'
+  } > "$LABWC_HOME/labwc/autostart"
+  chmod +x "$LABWC_HOME/labwc/autostart"
+
+  # Clear stale wayland sockets/locks from a previously-killed session so
+  # labwc consistently binds wayland-0 instead of skipping to wayland-1.
+  # Safe here: the previous labwc ran in the foreground below and has already
+  # returned, so nothing is using a Wayland socket at this point.
+  pgrep -x labwc >/dev/null || rm -f "$RT"/wayland-[0-9] "$RT"/wayland-[0-9].lock 2>/dev/null
+
+  XDG_CONFIG_HOME="$LABWC_HOME" labwc >> "$LOG" 2>&1
 
   echo "[$(date)] chromium/labwc exited, restarting in 3s..." >> "$LOG"
   sleep 3
