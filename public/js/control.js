@@ -1,6 +1,10 @@
 (function () {
   const urlInput = document.getElementById('url-input');
   const btnNavigate = document.getElementById('btn-navigate');
+  const bookmarkList = document.getElementById('bookmark-list');
+  const bookmarkName = document.getElementById('bookmark-name');
+  const bookmarkUrl = document.getElementById('bookmark-url');
+  const btnBookmarkAdd = document.getElementById('btn-bookmark-add');
   const btnReload = document.getElementById('btn-reload');
   const btnClearCache = document.getElementById('btn-clear-cache');
   const btnRestart = document.getElementById('btn-restart');
@@ -180,6 +184,7 @@
       const z = Math.round((msg.settings.zoom || 1) * 100);
       zoomSlider.value = z;
       zoomValue.textContent = z + '%';
+      if (Array.isArray(msg.settings.bookmarks)) renderBookmarks(msg.settings.bookmarks);
     }
     // State machine: wait for disconnect then reconnect
     if (waitingForReconnect === 'wait-disconnect' && !msg.browser_connected) {
@@ -334,9 +339,95 @@
         const z = Math.round((s.zoom || 1) * 100);
         zoomSlider.value = z;
         zoomValue.textContent = z + '%';
+        renderBookmarks(s.bookmarks || []);
       })
       .catch(() => {});
   }
+
+  // -- Bookmarks (quicknav) --
+  // Kept in settings.json so all panels + the kiosk share one list. Clicking
+  // one is exactly the "Go" button: POST /api/navigate persists settings.url
+  // AND navigates chromium, so the kiosk stays on it after a reboot. Favicon
+  // is derived from the host via Google's s2 service — no storage, the panel
+  // browser already has internet.
+  let bookmarks = [];
+
+  function faviconFor(url) {
+    try {
+      return 'https://www.google.com/s2/favicons?domain=' +
+        encodeURIComponent(new URL(url).host) + '&sz=32';
+    } catch { return ''; }
+  }
+
+  function renderBookmarks(list) {
+    bookmarks = Array.isArray(list) ? list : [];
+    if (!bookmarks.length) {
+      bookmarkList.innerHTML = '<div class="bookmark-empty">No bookmarks yet.</div>';
+      return;
+    }
+    bookmarkList.innerHTML = bookmarks
+      .map((b, i) =>
+        '<div class="bookmark-item" data-idx="' + i + '" title="' + escapeAttr(b.url) + '">' +
+        '<img class="bookmark-favicon" src="' + escapeAttr(faviconFor(b.url)) + '" alt="" ' +
+        'onerror="this.style.visibility=\'hidden\'">' +
+        '<span class="bookmark-name">' + escapeText(b.name || b.url) + '</span>' +
+        '<button class="bookmark-forget" data-forget="' + i + '" title="Remove">✕</button>' +
+        '</div>'
+      )
+      .join('');
+  }
+
+  function saveBookmarks() {
+    return fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bookmarks }),
+    }).then(r => r.json());
+  }
+
+  bookmarkList.addEventListener('click', (e) => {
+    const forget = e.target.closest('[data-forget]');
+    if (forget) {
+      e.stopPropagation();
+      const idx = parseInt(forget.dataset.forget, 10);
+      const b = bookmarks[idx];
+      if (!b || !confirm('Remove bookmark "' + (b.name || b.url) + '"?')) return;
+      bookmarks.splice(idx, 1);
+      renderBookmarks(bookmarks);
+      saveBookmarks().then(() => toast('Bookmark removed')).catch(() => toast('Failed'));
+      return;
+    }
+    const item = e.target.closest('.bookmark-item');
+    if (!item) return;
+    const b = bookmarks[parseInt(item.dataset.idx, 10)];
+    if (!b) return;
+    showPreviewLoader();
+    fetch('/api/navigate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: b.url }),
+    })
+      .then(r => r.json())
+      .then(res => toast(res.ok ? ('→ ' + (b.name || b.url)) : ('Error: ' + (res.error || 'unknown'))))
+      .catch(() => toast('Failed to navigate'));
+  });
+
+  btnBookmarkAdd.addEventListener('click', () => {
+    const name = bookmarkName.value.trim();
+    let url = bookmarkUrl.value.trim();
+    if (!url) { toast('Enter a URL'); return; }
+    if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+    try { new URL(url); } catch { toast('Invalid URL'); return; }
+    bookmarks.push({ name: name || url, url });
+    renderBookmarks(bookmarks);
+    bookmarkName.value = '';
+    bookmarkUrl.value = '';
+    saveBookmarks().then(() => toast('Bookmark added')).catch(() => toast('Failed'));
+  });
+
+  bookmarkUrl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') btnBookmarkAdd.click();
+  });
 
   // -- Preview FPS (client-local, sent over WS) --
   fpsPreset.value = String(readLocalFps());

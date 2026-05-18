@@ -55,6 +55,7 @@ function readSettings() {
     zoom: s.zoom != null ? s.zoom : 1,
     kioskFlags: s.kioskFlags != null ? s.kioskFlags : DEFAULT_KIOSK_FLAGS,
     remoteDebugEnabled: s.remoteDebugEnabled === true,
+    bookmarks: Array.isArray(s.bookmarks) ? s.bookmarks : [],
   };
 }
 
