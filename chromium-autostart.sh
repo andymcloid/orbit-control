@@ -136,8 +136,11 @@ while true; do
     RCXML='<?xml version="1.0"?>
 <labwc_config><keyboard>
 <keybind key="A-F4"><action name="Raise"/></keybind>
+<keybind key="S-A-F4"><action name="Raise"/></keybind>
 <keybind key="A-Tab"><action name="Raise"/></keybind>
+<keybind key="S-A-Tab"><action name="Raise"/></keybind>
 <keybind key="F5"><action name="Raise"/></keybind>
+<keybind key="S-F5"><action name="Raise"/></keybind>
 </keyboard></labwc_config>'
   fi
   printf '%s\n' "$RCXML" > "$LABWC_HOME/labwc/rc.xml"
