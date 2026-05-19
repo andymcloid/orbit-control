@@ -23,7 +23,17 @@ if (!fs.existsSync(CONFIG)) {
 }
 
 const env = parseEnvFile(fs.readFileSync(CONFIG, 'utf8'));
-const HOST = env.ORBIT_HOST;
+// ORBIT_HOST may be "host" or "host:port" (e.g. an SSH-bridge on
+// localhost:2222 → Pi). An explicit ORBIT_PORT wins if both are set.
+let HOST = env.ORBIT_HOST;
+let PORT = parseInt(env.ORBIT_PORT, 10) || 22;
+if (HOST) {
+  const m = HOST.match(/^(.*):(\d+)$/);
+  if (m) {
+    HOST = m[1];
+    if (!env.ORBIT_PORT) PORT = parseInt(m[2], 10);
+  }
+}
 const USER = env.ORBIT_USER;
 const KEY = env.ORBIT_KEY;
 const PASS = env.ORBIT_PASS;
@@ -48,7 +58,7 @@ const conn = new Client();
 
 const connectOpts = {
   host: HOST,
-  port: 22,
+  port: PORT,
   username: USER,
   readyTimeout: 30000,
   keepaliveInterval: 15000,
@@ -62,6 +72,9 @@ const connectOpts = {
 // then fall back to parsing `ping -4` output (which DOES use Windows mDNS).
 function resolveIPv4(host, cb) {
   if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) return cb(null, host);
+  // localhost = an SSH bridge/tunnel on this machine; resolve to loopback
+  // directly (don't ping/mDNS it).
+  if (host === 'localhost') return cb(null, '127.0.0.1');
   dns.lookup(host, { all: true }, (err, addresses) => {
     if (!err && addresses && addresses.length) {
       const v4 = addresses.find((a) => a.family === 4);

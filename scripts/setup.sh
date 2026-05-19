@@ -41,7 +41,12 @@ PACKAGES_TO_INSTALL=()
 # labwc is the kiosk compositor (NOT cage): cage can't give chromium a working
 # GL context on Pi 5, so everything software-rasterises. labwc exposes the
 # dmabuf/EGL path chromium's GPU process needs.
-for pkg in chromium labwc network-manager curl; do
+# Noto fonts: without these, dashboards render emoji/CJK/special chars as
+# tofu boxes (□). fonts-noto-color-emoji gives colour emoji, fonts-noto-extra
+# covers less-common scripts. Found necessary on a real deploy — installing
+# them by hand fixed broken glyphs, so setup must do it too.
+for pkg in chromium labwc network-manager curl \
+           fonts-noto fonts-noto-color-emoji fonts-noto-extra; do
   if ! dpkg -l "$pkg" 2>/dev/null | grep -q '^ii'; then
     PACKAGES_TO_INSTALL+=("$pkg")
   fi
@@ -51,6 +56,9 @@ if [[ ${#PACKAGES_TO_INSTALL[@]} -gt 0 ]]; then
   info "Installing: ${PACKAGES_TO_INSTALL[*]}"
   apt-get update -qq
   apt-get install -y -qq "${PACKAGES_TO_INSTALL[@]}"
+  # Rebuild the font cache so chromium picks up newly-installed fonts without
+  # a reboot (no-op if nothing font-related changed).
+  fc-cache -f >/dev/null 2>&1 || true
 else
   info "All system packages already installed."
 fi
@@ -181,13 +189,18 @@ else
   # Don't restart getty@tty1 here — if we're on it, we'd kick ourselves off.
 fi
 
-# --- Copy chromium-autostart.sh to kiosk user home ---
-
+# --- Link chromium-autostart.sh into kiosk user home ---
+#
+# SYMLINK, not cp. .bash_profile runs ~/chromium-autostart.sh; if that's a
+# plain copy it goes stale the moment the repo updates — `git pull` changes
+# $INSTALL_DIR but the kiosk keeps running the copy from first setup forever
+# (this actually happened: bookmark + keybind fixes never ran on the device
+# for days). A symlink makes `git pull` + restart-kiosk the whole deploy.
 AUTOSTART_DEST="$KIOSK_HOME/chromium-autostart.sh"
-cp "$INSTALL_DIR/chromium-autostart.sh" "$AUTOSTART_DEST"
-chmod +x "$AUTOSTART_DEST"
-chown "$KIOSK_USER:$KIOSK_USER" "$AUTOSTART_DEST" 2>/dev/null || true
-info "Autostart script copied to $AUTOSTART_DEST"
+ln -sfn "$INSTALL_DIR/chromium-autostart.sh" "$AUTOSTART_DEST"
+chmod +x "$INSTALL_DIR/chromium-autostart.sh"
+chown -h "$KIOSK_USER:$KIOSK_USER" "$AUTOSTART_DEST" 2>/dev/null || true
+info "Autostart script linked: $AUTOSTART_DEST -> $INSTALL_DIR/chromium-autostart.sh"
 
 # --- .bash_profile — auto-launch on tty1 ---
 
