@@ -36,21 +36,32 @@ fetch_settings() {
   curl -sf "http://localhost:${OC_PORT}/api/settings" 2>/dev/null
 }
 
-extract() {
-  echo "$1" | sed -n "s/.*\"$2\":\"\\([^\"]*\\)\".*/\\1/p"
-}
-
 extract_num() {
   echo "$1" | sed -n "s/.*\"$2\":\\([0-9][0-9]*\\).*/\\1/p"
 }
 
 read_kiosk_args() {
-  local s url w h res
-  s=$(fetch_settings)
-  url=$(extract "$s" "url"); url="${url:-https://example.com}"
-  res=$(echo "$s" | sed -n 's/.*"resolution":{\([^}]*\)}.*/\1/p')
-  w=$(extract_num "$res" "width")
-  h=$(extract_num "$res" "height")
+  local target url w h s res
+  # Prefer the dedicated plain-text endpoint: "URL\nWIDTHxHEIGHT". This avoids
+  # parsing the settings JSON, which now contains multiple "url" keys (the
+  # bookmarks array) — the old greedy sed matched a bookmark's url and the
+  # kiosk restarted on the wrong page.
+  target=$(curl -sf "http://localhost:${OC_PORT}/api/kiosk-target" 2>/dev/null)
+  if [ -n "$target" ]; then
+    url=$(printf '%s\n' "$target" | sed -n '1p')
+    w=$(printf '%s\n' "$target" | sed -n '2p' | sed -n 's/^\([0-9][0-9]*\)x.*/\1/p')
+    h=$(printf '%s\n' "$target" | sed -n '2p' | sed -n 's/^[0-9][0-9]*x\([0-9][0-9]*\).*/\1/p')
+  else
+    # Fallback (server unreachable): the resolution object has no nested "url",
+    # so anchoring to the FIRST top-level "url" before the bookmarks array is
+    # still safe enough for a degraded path.
+    s=$(fetch_settings)
+    url=$(echo "$s" | sed -n 's/^{[^}]*\?"url":"\([^"]*\)".*/\1/p')
+    res=$(echo "$s" | sed -n 's/.*"resolution":{\([^}]*\)}.*/\1/p')
+    w=$(extract_num "$res" "width")
+    h=$(extract_num "$res" "height")
+  fi
+  url="${url:-https://example.com}"
   if [ -z "$w" ] || [ -z "$h" ] || [ "$w" -lt 800 ] || [ "$h" -lt 600 ]; then
     w=1920; h=1080
   fi
@@ -108,6 +119,23 @@ while true; do
   LABWC_HOME="$HOME/.cache/orbit-labwc"
   RT="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
   mkdir -p "$LABWC_HOME/labwc"
+
+  # rc.xml: neutralises clicker keystrokes that would otherwise break the kiosk
+  # (long-press Enter on the MK118 remote = Alt+F4 = chromium dies; long-press
+  # Tab = Alt+Tab = labwc window-cycle). The server renders this from the
+  # suppressKeys setting; labwc reads exactly one rc.xml from here and resolves
+  # keybinds before the key reaches chromium, so a no-op bind eats the chord.
+  # If the server is unreachable, fall back to a hardcoded rc.xml that still
+  # blocks the two dangerous chords — never leave the kiosk killable.
+  RCXML=$(curl -sf "http://localhost:${OC_PORT}/api/labwc-config" 2>/dev/null)
+  if [ -z "$RCXML" ]; then
+    RCXML='<?xml version="1.0"?>
+<labwc_config><keyboard>
+<keybind key="A-F4"><action name="None"/></keybind>
+<keybind key="A-Tab"><action name="None"/></keybind>
+</keyboard></labwc_config>'
+  fi
+  printf '%s\n' "$RCXML" > "$LABWC_HOME/labwc/rc.xml"
 
   # Autostart: run chromium in the foreground; when it exits, SIGTERM labwc
   # (the autostart script's parent) so this foreground `labwc` returns and the

@@ -542,6 +542,20 @@ body.drawer-open .trigger-btn {
   line-height: 1.5;
 }
 
+.advanced-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.advanced-suppress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .advanced-hint code,
 .advanced-remote-info code {
   font-family: 'SF Mono', 'Consolas', monospace;

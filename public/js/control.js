@@ -54,6 +54,7 @@
   const advancedMsg = document.getElementById('advanced-msg');
   const advancedRemoteDebug = document.getElementById('advanced-remote-debug');
   const advancedRemoteInfo = document.getElementById('advanced-remote-info');
+  const advancedSuppress = document.getElementById('advanced-suppress');
   const btnAdvancedCancel = document.getElementById('btn-advanced-cancel');
   const btnAdvancedReset = document.getElementById('btn-advanced-reset');
   const btnAdvancedSave = document.getElementById('btn-advanced-save');
@@ -443,19 +444,42 @@
     advancedRemoteInfo.hidden = !advancedRemoteDebug.checked;
   }
 
+  function renderSuppressKeys(available, enabled) {
+    advancedSuppress.innerHTML = '';
+    available.forEach(({ id, label }) => {
+      const wrap = document.createElement('label');
+      wrap.className = 'advanced-toggle';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.value = id;
+      cb.checked = enabled.includes(id);
+      const span = document.createElement('span');
+      span.textContent = label;
+      wrap.append(cb, span);
+      advancedSuppress.appendChild(wrap);
+    });
+  }
+
+  function selectedSuppressKeys() {
+    return Array.from(advancedSuppress.querySelectorAll('input:checked')).map(cb => cb.value);
+  }
+
   function openAdvancedModal() {
     advancedMsg.textContent = '';
     advancedMsg.className = 'advanced-msg';
     advancedFlags.value = 'Loading...';
     advancedFlags.disabled = true;
+    advancedSuppress.innerHTML = '';
     Promise.all([
       fetch('/api/kiosk-flags').then(r => r.text()),
       fetch('/api/settings').then(r => r.json()),
+      fetch('/api/suppress-keys').then(r => r.json()),
     ])
-      .then(([flags, settings]) => {
+      .then(([flags, settings, suppress]) => {
         advancedFlags.value = flags;
         advancedFlags.disabled = false;
         advancedRemoteDebug.checked = settings.remoteDebugEnabled === true;
+        renderSuppressKeys(suppress.available, suppress.enabled);
         syncRemoteDebugInfo();
       })
       .catch(() => { advancedFlags.value = ''; advancedFlags.disabled = false; });
@@ -482,13 +506,14 @@
   btnAdvancedSave.addEventListener('click', () => {
     const flags = advancedFlags.value;
     const remoteDebugEnabled = advancedRemoteDebug.checked;
+    const suppressKeys = selectedSuppressKeys();
     btnAdvancedSave.disabled = true;
     advancedMsg.textContent = 'Saving...';
     advancedMsg.className = 'advanced-msg';
     fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kioskFlags: flags, remoteDebugEnabled }),
+      body: JSON.stringify({ kioskFlags: flags, remoteDebugEnabled, suppressKeys }),
     })
       .then(r => r.json())
       .then(() => {

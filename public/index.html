@@ -201,6 +201,11 @@
             <li><code>ws://&lt;host&gt;/cdp/devtools/page/&lt;id&gt;</code> — CDP socket per tab</li>
           </ul>
         </div>
+        <div class="advanced-label">Suppress clicker keys</div>
+        <div id="advanced-suppress" class="advanced-suppress"></div>
+        <div class="advanced-remote-info">
+          Presentation remotes (e.g. MK118) emit these on long-press. Suppressed at the compositor (labwc) so the page never sees them — Alt+F4 would otherwise kill the kiosk, Alt+Tab would switch windows.
+        </div>
         <div class="advanced-hint">One flag per line. Changes apply when the kiosk restarts. Removing core flags (e.g. <code>--ozone-platform=wayland</code>) can break the kiosk.</div>
         <textarea id="advanced-flags" spellcheck="false" autocomplete="off"></textarea>
         <div class="advanced-actions">
