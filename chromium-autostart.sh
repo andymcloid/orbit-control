@@ -127,12 +127,17 @@ while true; do
   # keybinds before the key reaches chromium, so a no-op bind eats the chord.
   # If the server is unreachable, fall back to a hardcoded rc.xml that still
   # blocks the two dangerous chords — never leave the kiosk killable.
+  # Bind to a REAL inert action (Raise — no-op with one fullscreen window) so
+  # labwc ABSORBS the key. <action name="None"/> would instead CLEAR the
+  # default bind and let the key fall through to chromium (fatal for Alt+F4);
+  # an empty <keybind> is version-ambiguous. See buildLabwcConfig in server.js.
   RCXML=$(curl -sf "http://localhost:${OC_PORT}/api/labwc-config" 2>/dev/null)
   if [ -z "$RCXML" ]; then
     RCXML='<?xml version="1.0"?>
 <labwc_config><keyboard>
-<keybind key="A-F4"><action name="None"/></keybind>
-<keybind key="A-Tab"><action name="None"/></keybind>
+<keybind key="A-F4"><action name="Raise"/></keybind>
+<keybind key="A-Tab"><action name="Raise"/></keybind>
+<keybind key="F5"><action name="Raise"/></keybind>
 </keyboard></labwc_config>'
   fi
   printf '%s\n' "$RCXML" > "$LABWC_HOME/labwc/rc.xml"
