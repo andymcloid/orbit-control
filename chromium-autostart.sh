@@ -141,6 +141,12 @@ while true; do
 <keybind key="S-A-Tab"><action name="Raise"/></keybind>
 <keybind key="F5"><action name="Raise"/></keybind>
 <keybind key="S-F5"><action name="Raise"/></keybind>
+<keybind key="C-A-BackSpace"><action name="Raise"/></keybind>
+<keybind key="S-C-A-BackSpace"><action name="Raise"/></keybind>
+<keybind key="C-A-F1"><action name="Raise"/></keybind>
+<keybind key="S-C-A-F1"><action name="Raise"/></keybind>
+<keybind key="C-A-Delete"><action name="Raise"/></keybind>
+<keybind key="S-C-A-Delete"><action name="Raise"/></keybind>
 </keyboard></labwc_config>'
   fi
   printf '%s\n' "$RCXML" > "$LABWC_HOME/labwc/rc.xml"

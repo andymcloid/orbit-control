@@ -81,12 +81,37 @@ const DEFAULT_KIOSK_FLAGS = [
 // `keybind` is an array → one logical entry can swallow several chord
 // variants. Each is bound to a real-but-inert action so labwc ABSORBS it.
 const NOOP_ACTION = '<action name="Raise"/>';
+// The "long-press Enter" button doesn't actually emit Alt+F4 — observed
+// symptom is that the Wayland session dies but chromium keeps running
+// (music plays on, screen shows tty1 login). Without an evdev capture of
+// the real chord we bind the three most likely culprits matching that
+// symptom; cheap insurance, harmless to bind even if only one matches:
+//   - Ctrl+Alt+Backspace = classic "kill the graphical session"
+//   - Ctrl+Alt+F1        = tty switch to tty1 (matches "stod bara tty1")
+//   - Ctrl+Alt+Delete    = on some setups maps to reboot.target via logind
+// Shift variants included because this remote layers Shift onto long-press
+// codes (verified for F5 → S-F5; assume same pattern here).
 const SUPPRESSIBLE_KEYS = {
-  'alt+f4': { keybind: ['A-F4', 'S-A-F4'], label: 'Alt+F4 (long-press Enter — kills Chromium)' },
+  'alt+f4': { keybind: ['A-F4', 'S-A-F4'], label: 'Alt+F4 (close-window)' },
   'alt+tab': { keybind: ['A-Tab', 'S-A-Tab'], label: 'Alt+Tab (long-press Tab — switches windows)' },
   'f5': { keybind: ['F5', 'S-F5'], label: 'F5 / Shift+F5 (long-press ArrowUp — page refresh)' },
+  'ctrl+alt+backspace': {
+    keybind: ['C-A-BackSpace', 'S-C-A-BackSpace'],
+    label: 'Ctrl+Alt+Backspace (kills Wayland session — top candidate for "long-press Enter")',
+  },
+  'ctrl+alt+f1': {
+    keybind: ['C-A-F1', 'S-C-A-F1'],
+    label: 'Ctrl+Alt+F1 (tty1 switch — leaves chromium alive in background)',
+  },
+  'ctrl+alt+del': {
+    keybind: ['C-A-Delete', 'S-C-A-Delete'],
+    label: 'Ctrl+Alt+Delete (may trigger reboot via logind)',
+  },
 };
-const DEFAULT_SUPPRESS_KEYS = ['alt+f4', 'alt+tab', 'f5'];
+const DEFAULT_SUPPRESS_KEYS = [
+  'alt+f4', 'alt+tab', 'f5',
+  'ctrl+alt+backspace', 'ctrl+alt+f1', 'ctrl+alt+del',
+];
 
 // Emit a complete rc.xml (not a fragment) — labwc reads exactly one rc.xml
 // from $XDG_CONFIG_HOME/labwc/ and does not merge.
