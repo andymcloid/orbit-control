@@ -45,7 +45,15 @@ PACKAGES_TO_INSTALL=()
 # tofu boxes (□). fonts-noto-color-emoji gives colour emoji, fonts-noto-extra
 # covers less-common scripts. Found necessary on a real deploy — installing
 # them by hand fixed broken glyphs, so setup must do it too.
+# PipeWire audio stack: Pi OS *Lite* ships no sound server, so chromium talks
+# straight to ALSA and audio is stuck on whatever device ALSA defaults to.
+# With pipewire + pipewire-pulse, chromium (a PulseAudio client) follows the
+# default sink, and lib/audio.js can list devices (pw-dump) and switch between
+# HDMI / USB dongles live (wpctl set-default). wireplumber persists the chosen
+# default across reboots. Needs a reboot after first install so the user
+# session picks the services up and chromium reconnects via pulse.
 for pkg in chromium labwc network-manager curl \
+           pipewire pipewire-pulse wireplumber \
            fonts-noto fonts-noto-color-emoji fonts-noto-extra; do
   if ! dpkg -l "$pkg" 2>/dev/null | grep -q '^ii'; then
     PACKAGES_TO_INSTALL+=("$pkg")
@@ -73,6 +81,13 @@ if [[ -f "$RPI_VARS" ]] && grep -q -- '--force-renderer-accessibility' "$RPI_VAR
   info "Stripping --force-renderer-accessibility from $RPI_VARS"
   sed -i 's/ --force-renderer-accessibility//g' "$RPI_VARS"
 fi
+
+# --- Enable PipeWire user services ---
+# They run inside the kiosk user's login session (systemd --user starts them
+# on the tty1 autologin). Debian's user presets normally enable these already;
+# --global makes it explicit and covers images where presets were trimmed.
+# Harmless if already enabled.
+systemctl --global enable pipewire.socket pipewire-pulse.socket wireplumber.service 2>/dev/null || true
 
 # --- Ensure NetworkManager is the active network manager ---
 # Pi OS Lite Bookworm ships with dhcpcd as the default; we need NM running

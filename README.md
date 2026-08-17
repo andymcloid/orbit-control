@@ -13,6 +13,7 @@ Built for Raspberry Pi OS Lite (Bookworm) with Chromium kiosk mode under [cage](
 - **Kiosk restart** — Kill and auto-restart Chromium without rebooting
 - **System reboot** — Remote reboot from the control panel
 - **System info** — IP, hostname, CPU temp, memory, disk, uptime — all live
+- **Audio output switching** — List output devices (HDMI, USB dongles, ...) and switch the kiosk's sound between them live via PipeWire, plus a volume slider; the choice persists across reboots
 - **Persistent settings** — URL and zoom level saved to `settings.json`, survives reboots
 - **Auto-reconnect** — CDP connection and WebSocket both reconnect automatically
 - **Preview LED toggle** — Click the power button on the monitor overlay to toggle the live stream
@@ -171,6 +172,7 @@ orbit-control/
 │   ├── hotkey.js             # evdev listener for Ctrl+Alt+A (kiosk ↔ admin toggle)
 │   ├── system.js             # System commands (cross-platform)
 │   ├── update.js             # Git-based self-update
+│   ├── audio.js              # PipeWire (wpctl/pw-dump) output-device switching
 │   └── wifi.js               # NetworkManager (nmcli) integration
 ├── public/
 │   ├── index.html            # Control panel (left panel + centered preview)

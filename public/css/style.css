@@ -990,6 +990,38 @@ body.drawer-open .trigger-btn {
 
 .wifi-saved .wifi-item:hover .wifi-item-forget { opacity: 1; }
 
+/* ── Audio output ── */
+/* The device list in the audio modal reuses the .wifi-item/.wifi-list styles
+   on purpose — same look, same hover/current states, no duplication. */
+
+.audio-current-icon {
+  flex-shrink: 0;
+  font-size: 13px;
+}
+
+.audio-item-icon {
+  flex-shrink: 0;
+  font-size: 14px;
+  width: 20px;
+  text-align: center;
+}
+
+.audio-volume-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px 16px;
+}
+
+.audio-volume-row input[type="range"] {
+  flex: 1;
+  accent-color: var(--accent);
+  height: 6px;
+  cursor: pointer;
+}
+
+.audio-volume-row .zoom-value { min-width: 60px; }
+
 /* ── Toast ── */
 
 .toast {

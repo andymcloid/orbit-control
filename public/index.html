@@ -102,6 +102,17 @@
     </div>
 
     <div class="panel-section">
+      <div class="panel-label">Audio Output</div>
+      <div class="net-row">
+        <div class="net-current">
+          <span class="audio-current-icon" id="audio-current-icon">🔊</span>
+          <span id="audio-sink-name">—</span>
+        </div>
+        <button class="btn btn-small" id="btn-audio-manage">Manage</button>
+      </div>
+    </div>
+
+    <div class="panel-section">
       <div class="panel-label">Display Resolution</div>
       <div class="display-row">
         <select id="display-preset">
@@ -178,6 +189,27 @@
         </label>
         <button class="btn btn-primary" id="btn-wifi-connect-submit">Connect</button>
         <div class="wifi-connect-msg" id="wifi-connect-msg"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="update-modal" id="audio-modal" hidden>
+    <div class="update-modal-inner update-modal-small">
+      <div class="update-modal-header">
+        <h2>Audio Output</h2>
+        <button class="btn btn-small" id="btn-audio-close">Close</button>
+      </div>
+      <div class="wifi-actions-row">
+        <button class="btn btn-small" id="btn-audio-refresh">↻ Refresh</button>
+        <span class="wifi-hint" id="audio-hint"></span>
+      </div>
+      <div class="wifi-list" id="audio-list">
+        <div class="wifi-empty">Loading devices...</div>
+      </div>
+      <div class="wifi-saved-label">Volume</div>
+      <div class="audio-volume-row">
+        <input type="range" id="audio-volume" min="0" max="100" step="5" value="100">
+        <span class="zoom-value" id="audio-volume-value">—</span>
       </div>
     </div>
   </div>

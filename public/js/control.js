@@ -48,6 +48,16 @@
   const btnWifiConnectSubmit = document.getElementById('btn-wifi-connect-submit');
   const btnWifiConnectCancel = document.getElementById('btn-wifi-connect-cancel');
   const wifiConnectMsg = document.getElementById('wifi-connect-msg');
+  const audioSinkName = document.getElementById('audio-sink-name');
+  const audioCurrentIcon = document.getElementById('audio-current-icon');
+  const btnAudioManage = document.getElementById('btn-audio-manage');
+  const audioModal = document.getElementById('audio-modal');
+  const btnAudioClose = document.getElementById('btn-audio-close');
+  const btnAudioRefresh = document.getElementById('btn-audio-refresh');
+  const audioList = document.getElementById('audio-list');
+  const audioHint = document.getElementById('audio-hint');
+  const audioVolume = document.getElementById('audio-volume');
+  const audioVolumeValue = document.getElementById('audio-volume-value');
   const btnAdvanced = document.getElementById('btn-advanced');
   const advancedModal = document.getElementById('advanced-modal');
   const advancedFlags = document.getElementById('advanced-flags');
@@ -147,6 +157,8 @@
         renderSystemInfo(msg.info);
       } else if (msg.type === 'wifi-status') {
         renderWifiStatus(msg.status, msg.saved);
+      } else if (msg.type === 'audio-status') {
+        renderAudioStatus(msg.audio);
       } else if (msg.type === 'update-output') {
         appendUpdateLine(msg.stream === 'stderr' ? 'err' : 'std', msg.line);
       } else if (msg.type === 'update-step') {
@@ -927,6 +939,134 @@
 
   wifiPassword.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') btnWifiConnectSubmit.click();
+  });
+
+  // -- Audio output --
+  // Volume slider guard: WS pushes arrive every few seconds and would yank the
+  // slider out of the user's hand mid-drag; ignore pushed volume for a short
+  // window after any local interaction.
+  let audioVolumeTouchedAt = 0;
+  let audioVolumeTimer;
+  let audioSwitching = false;
+
+  function audioIconFor(sink) {
+    const hay = ((sink.name || '') + ' ' + (sink.description || '')).toLowerCase();
+    if (hay.includes('hdmi')) return '🖥️';
+    if (hay.includes('usb')) return '🎧';
+    if (hay.includes('bluez') || hay.includes('bluetooth')) return '📶';
+    return '🔊';
+  }
+
+  // Render audio state into drawer row + modal. Called from the WS push every
+  // few seconds AND from on-demand refresh paths (after switch/volume).
+  function renderAudioStatus(a) {
+    a = a || {};
+    const sinks = a.sinks || [];
+    const current = sinks.find((s) => s.isDefault);
+    if (a.available === false) {
+      audioSinkName.textContent = 'Not available';
+      audioCurrentIcon.textContent = '🔇';
+    } else {
+      audioSinkName.textContent = current ? current.description : '—';
+      audioCurrentIcon.textContent = current ? audioIconFor(current) : '🔊';
+    }
+    renderAudioSinks(a);
+    if (a.volume != null && Date.now() - audioVolumeTouchedAt > 3000) {
+      const pct = Math.round(a.volume * 100);
+      audioVolume.value = Math.min(100, pct);
+      audioVolumeValue.textContent = (a.muted ? '🔇 ' : '') + pct + '%';
+    }
+  }
+
+  function renderAudioSinks(a) {
+    // Don't repaint the list out from under a click-in-flight — the immediate
+    // post-switch refresh will redraw it with the new active device.
+    if (audioSwitching || !audioList) return;
+    if (a.available === false) {
+      audioList.innerHTML =
+        '<div class="wifi-empty">Audio system not available' +
+        (a.error ? ' — ' + escapeText(a.error) : '') +
+        '. Is PipeWire installed? (re-run setup.sh + reboot)</div>';
+      return;
+    }
+    const sinks = a.sinks || [];
+    if (!sinks.length) {
+      audioList.innerHTML = '<div class="wifi-empty">No output devices found.</div>';
+      return;
+    }
+    audioList.innerHTML = sinks
+      .map(
+        (s) =>
+          '<div class="wifi-item' + (s.isDefault ? ' current' : '') + '" data-sink-id="' + s.id + '">' +
+          '<span class="audio-item-icon">' + audioIconFor(s) + '</span>' +
+          '<span class="wifi-item-ssid">' + escapeText(s.description) + '</span>' +
+          '<span class="wifi-item-meta">' + (s.isDefault ? 'active' : '') + '</span>' +
+          '</div>'
+      )
+      .join('');
+  }
+
+  function refreshAudioPanel() {
+    fetch('/api/audio/status')
+      .then((r) => r.json())
+      .then(renderAudioStatus)
+      .catch(() => {});
+  }
+
+  btnAudioManage.addEventListener('click', () => {
+    audioModal.hidden = false;
+    refreshAudioPanel();
+  });
+  btnAudioClose.addEventListener('click', () => { audioModal.hidden = true; });
+  btnAudioRefresh.addEventListener('click', () => {
+    audioHint.textContent = 'Refreshing...';
+    fetch('/api/audio/status')
+      .then((r) => r.json())
+      .then((a) => {
+        audioHint.textContent = ((a.sinks || []).length || 0) + ' devices';
+        renderAudioStatus(a);
+      })
+      .catch(() => { audioHint.textContent = 'Refresh failed'; });
+  });
+
+  audioList.addEventListener('click', (e) => {
+    const item = e.target.closest('.wifi-item');
+    if (!item || !item.dataset.sinkId || item.classList.contains('current')) return;
+    audioSwitching = true;
+    audioHint.textContent = 'Switching...';
+    fetch('/api/audio/default', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: parseInt(item.dataset.sinkId, 10) }),
+    })
+      .then((r) => r.json().then((j) => ({ status: r.status, body: j })))
+      .then(({ status, body }) => {
+        if (status >= 400 || (body && body.error)) {
+          audioHint.textContent = (body && body.error) || 'Switch failed';
+        } else {
+          audioHint.textContent = '';
+          toast('Audio output switched');
+        }
+      })
+      .catch(() => { audioHint.textContent = 'Switch failed'; })
+      .finally(() => {
+        audioSwitching = false;
+        refreshAudioPanel();
+      });
+  });
+
+  audioVolume.addEventListener('input', () => {
+    audioVolumeTouchedAt = Date.now();
+    const pct = parseInt(audioVolume.value, 10);
+    audioVolumeValue.textContent = pct + '%';
+    clearTimeout(audioVolumeTimer);
+    audioVolumeTimer = setTimeout(() => {
+      fetch('/api/audio/volume', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ volume: pct / 100 }),
+      }).catch(() => {});
+    }, 200);
   });
 
   // -- Init --

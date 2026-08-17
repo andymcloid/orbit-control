@@ -7,6 +7,7 @@ const { spawn } = require('child_process');
 const { getSystemInfo, restartKiosk, reboot } = require('./lib/system');
 const update = require('./lib/update');
 const wifi = require('./lib/wifi');
+const audio = require('./lib/audio');
 const cdp = require('./lib/cdp');
 const hotkey = require('./lib/hotkey');
 
@@ -518,6 +519,36 @@ app.post('/api/wifi/forget', async (req, res) => {
   }
 });
 
+// --- Audio output management (PipeWire/WirePlumber, see lib/audio.js) ---
+
+app.get('/api/audio/status', async (req, res) => {
+  try {
+    res.json(await audio.getStatus());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/audio/default', async (req, res) => {
+  const { id } = req.body || {};
+  if (id == null) return res.status(400).json({ error: 'id required' });
+  try {
+    res.json(await audio.setDefault(id));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/audio/volume', async (req, res) => {
+  const { volume } = req.body || {};
+  if (volume == null) return res.status(400).json({ error: 'volume required' });
+  try {
+    res.json(await audio.setVolume(volume));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 let updateInProgress = false;
 
 app.post('/api/update', async (req, res) => {
@@ -744,6 +775,9 @@ async function pushStatusUpdates() {
   try {
     const [status, saved] = await Promise.all([wifi.getStatus(), wifi.listSaved()]);
     broadcastJson({ type: 'wifi-status', status, saved });
+  } catch {}
+  try {
+    broadcastJson({ type: 'audio-status', audio: await audio.getStatus() });
   } catch {}
 }
 setInterval(pushStatusUpdates, STATUS_PUSH_INTERVAL_MS);
