@@ -34,60 +34,15 @@ fi
 info "Install directory: $INSTALL_DIR"
 info "Kiosk user: $KIOSK_USER (home: $KIOSK_HOME)"
 
-# --- Install system packages ---
+# --- System packages + provisioning (shared with the panel's update flow) ---
+# scripts/postupdate.sh holds the apt package list (chromium, labwc, pipewire
+# audio stack, noto fonts, ...) and other idempotent system tweaks. It is the
+# single source of truth: lib/update.js runs the same script on every
+# "Update from Git", so new system dependencies reach devices that are never
+# SSH'd again after first setup.
 
-info "Checking system packages..."
-PACKAGES_TO_INSTALL=()
-# labwc is the kiosk compositor (NOT cage): cage can't give chromium a working
-# GL context on Pi 5, so everything software-rasterises. labwc exposes the
-# dmabuf/EGL path chromium's GPU process needs.
-# Noto fonts: without these, dashboards render emoji/CJK/special chars as
-# tofu boxes (□). fonts-noto-color-emoji gives colour emoji, fonts-noto-extra
-# covers less-common scripts. Found necessary on a real deploy — installing
-# them by hand fixed broken glyphs, so setup must do it too.
-# PipeWire audio stack: Pi OS *Lite* ships no sound server, so chromium talks
-# straight to ALSA and audio is stuck on whatever device ALSA defaults to.
-# With pipewire + pipewire-pulse, chromium (a PulseAudio client) follows the
-# default sink, and lib/audio.js can list devices (pw-dump) and switch between
-# HDMI / USB dongles live (wpctl set-default). wireplumber persists the chosen
-# default across reboots. Needs a reboot after first install so the user
-# session picks the services up and chromium reconnects via pulse.
-for pkg in chromium labwc network-manager curl \
-           pipewire pipewire-pulse wireplumber \
-           fonts-noto fonts-noto-color-emoji fonts-noto-extra; do
-  if ! dpkg -l "$pkg" 2>/dev/null | grep -q '^ii'; then
-    PACKAGES_TO_INSTALL+=("$pkg")
-  fi
-done
-
-if [[ ${#PACKAGES_TO_INSTALL[@]} -gt 0 ]]; then
-  info "Installing: ${PACKAGES_TO_INSTALL[*]}"
-  apt-get update -qq
-  apt-get install -y -qq "${PACKAGES_TO_INSTALL[@]}"
-  # Rebuild the font cache so chromium picks up newly-installed fonts without
-  # a reboot (no-op if nothing font-related changed).
-  fc-cache -f >/dev/null 2>&1 || true
-else
-  info "All system packages already installed."
-fi
-
-# Raspberry Pi's chromium ships /etc/chromium.d/00-rpi-vars which force-adds
-# --force-renderer-accessibility. On a dynamic dashboard that rebuilds the
-# accessibility tree on every DOM mutation — heavy sustained CPU. We bypass
-# the chromium wrapper in chromium-autostart.sh anyway, but strip it here too
-# so any chromium launch on the box is clean.
-RPI_VARS="/etc/chromium.d/00-rpi-vars"
-if [[ -f "$RPI_VARS" ]] && grep -q -- '--force-renderer-accessibility' "$RPI_VARS"; then
-  info "Stripping --force-renderer-accessibility from $RPI_VARS"
-  sed -i 's/ --force-renderer-accessibility//g' "$RPI_VARS"
-fi
-
-# --- Enable PipeWire user services ---
-# They run inside the kiosk user's login session (systemd --user starts them
-# on the tty1 autologin). Debian's user presets normally enable these already;
-# --global makes it explicit and covers images where presets were trimmed.
-# Harmless if already enabled.
-systemctl --global enable pipewire.socket pipewire-pulse.socket wireplumber.service 2>/dev/null || true
+info "Running system provisioning (scripts/postupdate.sh)..."
+bash "$INSTALL_DIR/scripts/postupdate.sh"
 
 # --- Ensure NetworkManager is the active network manager ---
 # Pi OS Lite Bookworm ships with dhcpcd as the default; we need NM running
